@@ -43,7 +43,7 @@ gRPC health checks require `grpcurl` or a gRPC client on port 8001. See the [Tri
 
 | Setting | Local dev | Production |
 |---------|-----------|------------|
-| `TRITON_HOST` | `0.0.0.0` (default) | `127.0.0.1` for local-only access |
+| `TRITON_HOST` | `127.0.0.1` for local-only access | `0.0.0.0` (default) to accept remote connections |
 | `TRITON_MODEL_CONTROL_MODE` | `poll` for hot-reload | `none` (default) for stability |
 | `TRITON_LOG_VERBOSE` | `1` or higher for debugging | `0` (default) |
 | `TRITON_MODEL_SOURCES` | `local` for pre-staged models | `flox,local,r2,hf-hub` (default) |
