@@ -1,8 +1,9 @@
 #!/usr/bin/env bats
 # tests/preflight_ports.bats — Port list construction tests for triton-preflight.
 #
-# Strategy: Create a python3 shim that intercepts the port-scanning heredoc
-# (identified by 'find_listen_inodes_multi' in stdin) and prints the ports
+# Strategy: Create a python3 shim that intercepts port-related heredocs
+# (identified by 'EADDRINUSE' for the try-bind fast path, or
+# 'find_listen_inodes_multi' for the ownership scan) and prints the ports
 # that were passed as arguments. All other python3 calls are forwarded.
 
 setup() {
@@ -13,19 +14,25 @@ setup() {
   REAL_PYTHON3="$(command -v python3)"
   export REAL_PYTHON3
 
-  # Create a python3 shim that intercepts the port-scanning heredoc
+  # Create a python3 shim that intercepts the port-scanning heredocs.
+  # The new triton-preflight has a try-bind fast path (EADDRINUSE in stdin)
+  # that fires before find_listen_inodes_multi when ports are free.
   cat > "$TEST_TMPDIR/bin/python3" <<'SHIM'
 #!/usr/bin/env bash
-# Read stdin to determine if this is the port-scanning heredoc
+# Read stdin to determine if this is a port-related heredoc
 stdin_content="$(cat)"
-if [[ "$stdin_content" == *"find_listen_inodes_multi"* ]]; then
-  # This is the port-scanning call. Extract the ports from args.
-  # Args: python3 - <host> <euid> <port1> <port2> ...
+if [[ "$stdin_content" == *"EADDRINUSE"* ]]; then
+  # try_bind_fastpath: args are - <host> <port1> <port2> ...
+  shift  # skip the '-'
+  shift  # skip host
+  echo "INTERCEPTED_PORTS: $*" >&2
+  exit 0
+elif [[ "$stdin_content" == *"find_listen_inodes_multi"* ]]; then
+  # Port ownership scan: args are - <host> <euid> <port1> <port2> ...
   shift  # skip the '-'
   shift  # skip host
   shift  # skip euid
   echo "INTERCEPTED_PORTS: $*" >&2
-  # Exit cleanly (no listeners found = exit 0)
   exit 0
 else
   # Forward to real python3
@@ -85,7 +92,7 @@ teardown() {
   export TRITON_OPENAI_FRONTEND=banana
   run "$SCRIPTS_DIR/triton-preflight"
   [ "$status" -ne 0 ]
-  [[ "$output" == *"must be true/false/1/0/yes/no"* ]]
+  [[ "$output" == *"must be boolean-like"* ]]
 }
 
 @test "preflight ports: openai port value present in 4-port case" {

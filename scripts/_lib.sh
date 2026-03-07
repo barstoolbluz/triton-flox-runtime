@@ -267,7 +267,8 @@ lib::require_bool() {
 }
 
 lib::is_truthy() {
-  case "${1-,,}" in
+  local val="${1-}"
+  case "${val,,}" in
     true|1|yes|on) return 0 ;;
     *) return 1 ;;
   esac
@@ -278,7 +279,8 @@ lib::normalize_bool_var() {
   local false_value="${2:-false}"
   local true_value="${3:-true}"
   lib::_require_identifier "$name"
-  case "${!name-,,}" in
+  local val="${!name-}"
+  case "${val,,}" in
     1|true|yes|on) printf -v "$name" '%s' "$true_value" ;;
     0|false|no|off|'') printf -v "$name" '%s' "$false_value" ;;
     *) lib::die "$name must be true/false/1/0/yes/no/on/off, got: ${!name-}" ;;

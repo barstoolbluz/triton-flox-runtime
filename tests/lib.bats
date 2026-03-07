@@ -56,6 +56,24 @@ teardown() {
   [ "$status" -eq 1 ]
 }
 
+@test "is_truthy: on returns 0" {
+  lib::is_truthy "on"
+}
+
+@test "is_truthy: ON returns 0" {
+  lib::is_truthy "ON"
+}
+
+@test "is_truthy: off returns 1" {
+  run lib::is_truthy "off"
+  [ "$status" -eq 1 ]
+}
+
+@test "is_truthy: OFF returns 1" {
+  run lib::is_truthy "OFF"
+  [ "$status" -eq 1 ]
+}
+
 # --- lib::require_bool ---
 
 @test "require_bool: accepts true" {
@@ -98,6 +116,26 @@ teardown() {
   TESTVAR=""
   run lib::require_bool TESTVAR
   [ "$status" -ne 0 ]
+}
+
+@test "require_bool: accepts on" {
+  TESTVAR=on
+  lib::require_bool TESTVAR
+}
+
+@test "require_bool: accepts off" {
+  TESTVAR=off
+  lib::require_bool TESTVAR
+}
+
+@test "require_bool: accepts ON" {
+  TESTVAR=ON
+  lib::require_bool TESTVAR
+}
+
+@test "require_bool: accepts OFF" {
+  TESTVAR=OFF
+  lib::require_bool TESTVAR
 }
 
 # --- lib::require_pos_int ---
@@ -151,4 +189,77 @@ teardown() {
 @test "slugify: collapses special chars" {
   result="$(lib::slugify "a@#\$b")"
   [ "$result" = "a-b" ]
+}
+
+# --- lib::normalize_bool_var ---
+
+@test "normalize_bool_var: TRUE becomes true" {
+  X=TRUE
+  lib::normalize_bool_var X
+  [ "$X" = "true" ]
+}
+
+@test "normalize_bool_var: YES becomes true" {
+  X=YES
+  lib::normalize_bool_var X
+  [ "$X" = "true" ]
+}
+
+@test "normalize_bool_var: on becomes true" {
+  X=on
+  lib::normalize_bool_var X
+  [ "$X" = "true" ]
+}
+
+@test "normalize_bool_var: OFF becomes false" {
+  X=OFF
+  lib::normalize_bool_var X
+  [ "$X" = "false" ]
+}
+
+@test "normalize_bool_var: 0 becomes false" {
+  X=0
+  lib::normalize_bool_var X
+  [ "$X" = "false" ]
+}
+
+@test "normalize_bool_var: empty becomes false" {
+  X=""
+  lib::normalize_bool_var X
+  [ "$X" = "false" ]
+}
+
+@test "normalize_bool_var: custom values true->1 false->0" {
+  X=true
+  lib::normalize_bool_var X 0 1
+  [ "$X" = "1" ]
+  X=false
+  lib::normalize_bool_var X 0 1
+  [ "$X" = "0" ]
+}
+
+@test "normalize_bool_var: rejects banana" {
+  X=banana
+  run lib::normalize_bool_var X
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"must be true/false/1/0/yes/no/on/off"* ]]
+}
+
+# --- lib::slugify_nonempty ---
+
+@test "slugify_nonempty: valid input works" {
+  result="$(lib::slugify_nonempty "hello-world")"
+  [ "$result" = "hello-world" ]
+}
+
+@test "slugify_nonempty: empty input dies" {
+  run lib::slugify_nonempty ""
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"Slugified value is empty"* ]]
+}
+
+@test "slugify_nonempty: all-special-chars input dies" {
+  run lib::slugify_nonempty "@#\$%"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"Slugified value is empty"* ]]
 }
