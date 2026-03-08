@@ -263,3 +263,69 @@ teardown() {
   [ "$status" -ne 0 ]
   [[ "$output" == *"Slugified value is empty"* ]]
 }
+
+# --- lib::load_env_safe ---
+
+@test "load_env_safe: basic single export" {
+  local envf="$TEST_TMPDIR/basic.env"
+  echo "export FOO='bar'" > "$envf"
+  lib::load_env_safe "$envf"
+  [ "$FOO" = "bar" ]
+}
+
+@test "load_env_safe: multiple variables" {
+  local envf="$TEST_TMPDIR/multi.env"
+  cat > "$envf" <<'EOF'
+export AAA='one'
+export BBB='two'
+export CCC='three'
+EOF
+  lib::load_env_safe "$envf"
+  [ "$AAA" = "one" ]
+  [ "$BBB" = "two" ]
+  [ "$CCC" = "three" ]
+}
+
+@test "load_env_safe: unquoted values" {
+  local envf="$TEST_TMPDIR/unquoted.env"
+  echo "export XVAL=hello" > "$envf"
+  lib::load_env_safe "$envf"
+  [ "$XVAL" = "hello" ]
+}
+
+@test "load_env_safe: ANSI-C quoting with newline" {
+  local envf="$TEST_TMPDIR/ansic.env"
+  printf "export NLVAL=\$'line1\\\\nline2'\n" > "$envf"
+  lib::load_env_safe "$envf"
+  local expected
+  expected="$(printf 'line1\nline2')"
+  [ "$NLVAL" = "$expected" ]
+}
+
+@test "load_env_safe: comments and blank lines are skipped" {
+  local envf="$TEST_TMPDIR/comments.env"
+  cat > "$envf" <<'EOF'
+# This is a comment
+export CVAL='yes'
+
+# Another comment
+export DVAL='no'
+EOF
+  lib::load_env_safe "$envf"
+  [ "$CVAL" = "yes" ]
+  [ "$DVAL" = "no" ]
+}
+
+@test "load_env_safe: rejects symlinks" {
+  local real="$TEST_TMPDIR/real.env"
+  local link="$TEST_TMPDIR/link.env"
+  echo "export SYM='bad'" > "$real"
+  ln -s "$real" "$link"
+  run lib::load_env_safe "$link"
+  [ "$status" -ne 0 ]
+}
+
+@test "load_env_safe: rejects missing file" {
+  run lib::load_env_safe "$TEST_TMPDIR/nonexistent.env"
+  [ "$status" -ne 0 ]
+}

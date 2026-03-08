@@ -61,3 +61,10 @@ teardown() {
   [[ "$output" == *"--buffer-manager-thread-count"* ]]
   [[ "$output" == *"8"* ]]
 }
+
+@test "standard: TRITON_ENV_FILE_TRUSTED=false exercises load_env_safe" {
+  export TRITON_ENV_FILE_TRUSTED=false
+  run "$SCRIPTS_DIR/triton-serve" --dry-run
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"tritonserver"* ]]
+}

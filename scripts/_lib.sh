@@ -580,7 +580,7 @@ def parse_ansi_c_word(text: str):
         c = text[i]
         if c == "'":
             return ''.join(buf), text[i + 1:]
-        if c != '\':
+        if c != '\\':
             buf.append(c)
             i += 1
             continue
@@ -589,34 +589,33 @@ def parse_ansi_c_word(text: str):
             raise ValueError('unterminated ANSI-C escape')
         e = text[i]
         if e == 'n':
-            buf.append('
-')
+            buf.append('\n')
             i += 1
         elif e == 'r':
-            buf.append('')
+            buf.append('\r')
             i += 1
         elif e == 't':
-            buf.append('	')
+            buf.append('\t')
             i += 1
         elif e == 'a':
-            buf.append('')
+            buf.append('\a')
             i += 1
         elif e == 'b':
-            buf.append('')
+            buf.append('\b')
             i += 1
         elif e == 'f':
-            buf.append('')
+            buf.append('\f')
             i += 1
         elif e == 'v':
-            buf.append('')
+            buf.append('\v')
             i += 1
-        elif e in ('\', "'", '"'):
+        elif e in ('\\', "'", '"'):
             buf.append(e)
             i += 1
         elif e == 'x':
             hexchars = text[i + 1:i + 3]
             if len(hexchars) != 2 or any(ch not in '0123456789abcdefABCDEF' for ch in hexchars):
-                raise ValueError('bad \x escape')
+                raise ValueError('bad \\x escape')
             buf.append(chr(int(hexchars, 16)))
             i += 3
         elif e in '01234567':
@@ -642,8 +641,7 @@ try:
             raise SystemExit(f"Env file is not a regular file: {path}")
         with os.fdopen(fd, 'r', encoding='utf-8') as fh:
             for lineno, raw in enumerate(fh, 1):
-                line = raw.rstrip('
-')
+                line = raw.rstrip('\n')
                 stripped = line.strip()
                 if not stripped or stripped.startswith('#'):
                     continue
@@ -679,9 +677,7 @@ try:
 finally:
     os.close(dirfd)
 
-sys.stdout.write("
-".join(out) + ("
-" if out else ""))
+sys.stdout.write("\n".join(out) + ("\n" if out else ""))
 PY
 
   if (( rc != 0 )); then
