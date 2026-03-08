@@ -235,7 +235,18 @@ TRITON_HTTP_PORT=9000 TRITON_LOG_VERBOSE=1 flox activate --start-services
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `TRITON_RESOLVE_LOCK_TIMEOUT` | `300` | Seconds to wait for the per-model lock |
+| `TRITON_RESOLVE_NETWORK_RETRIES` | `3` | Retry attempts per network operation |
+| `TRITON_RESOLVE_NETWORK_TIMEOUT` | `900` | Per-attempt timeout in seconds |
+| `TRITON_RESOLVE_RETRY_SLEEP` | `2` | Sleep seconds between retries |
 | `TRITON_KEEP_LOGS` | `0` | `1` to keep download logs on success (always kept on failure) |
+| `TRITON_MODEL_STATE_DIR` | _(auto)_ | State directory for env/lock/provenance files. Fallback chain: env file directory → `$FLOX_ENV_CACHE` → `$TRITON_MODEL_REPOSITORY/.triton-resolve-state` |
+| `TRITON_DEEP_VALIDATE` | `1` | Run deeper validation (ONNX integrity, PyTorch format, TensorFlow structure, Python syntax, vLLM JSON) |
+| `TRITON_STRICT_DEEP_VALIDATION` | `0` | Fail if a deep validator is unavailable (e.g., `onnx` Python module not installed) |
+| `TRITON_PUBLISH_STRATEGY` | `symlink-store` | Publishing strategy: `symlink-store` or `replace-dir` |
+| `TRITON_PUBLISH_MIGRATE_TARGET_DIR` | `0` | Allow one-time migration from a plain directory target to symlink-store |
+| `TRITON_HF_CACHE_DIR` | _(unset)_ | Explicit HF cache root for the `hf-cache` source |
+| `TRITON_MODEL_LOADABILITY_CHECK` | _(unset)_ | Shell command for a custom loadability probe after validation |
+| `TRITON_STRICT_LOADABILITY_CHECK` | `0` | Fail if the loadability probe fails (`0` = warn only) |
 
 ### Env file settings
 
@@ -269,7 +280,7 @@ Sources are tried in the order specified by `TRITON_MODEL_SOURCES`. The default 
 | `local` | `$TRITON_MODEL_REPOSITORY/$TRITON_MODEL/` | Missing or fails layout validation | Sets path to existing local directory |
 | `r2` | Downloads from `s3://$R2_BUCKET/$R2_MODELS_PREFIX/$TRITON_MODEL/` | `aws` CLI missing, R2 vars not set, credentials invalid | Stages to temp dir, validates layout, atomic-swaps into repository |
 | `hf-hub` | Downloads from HuggingFace Hub | No model ID derivable, no download tool | Stages to temp dir, validates layout, atomic-swaps into repository |
-| `hf-cache` | Scans `$TRITON_MODEL_REPOSITORY/hub/models--<slug>/snapshots/` | No model ID derivable, no usable snapshot | Sets path to newest valid snapshot |
+| `hf-cache` | Scans standard HF cache locations for `models--<slug>/snapshots/` (see [HF cache source](#hf-cache-source)) | No model ID derivable, no usable snapshot | Sets path to newest valid snapshot |
 
 ### Model repository validation
 
@@ -282,6 +293,42 @@ The `_validate_model_repo` function checks every candidate directory:
 5. TensorFlow `model.savedmodel/` must contain `saved_model.pb`.
 
 The function returns a JSON object with fields: `valid`, `versions`, `backends_detected`, `has_config`, and `error` (on failure).
+
+### Deep validation
+
+When `TRITON_DEEP_VALIDATE=1` (the default), the resolver runs backend-specific integrity checks on each artifact after basic layout validation passes:
+
+| Backend | Check |
+|---------|-------|
+| `onnx` | `onnx.load()` + `onnx.checker.check_model()`. If the `onnx` Python module is not installed the check is skipped with a warning (or fails if `TRITON_STRICT_DEEP_VALIDATION=1`) |
+| `pytorch` | Reads the first bytes to identify zip (TorchScript) or pickle (`\x80`) format. Warns if the format is unrecognized but does not fail |
+| `tensorflow` | Verifies `saved_model.pb` exists and is non-empty inside `model.savedmodel/` |
+| `python` | `compile(source, path, 'exec')` syntax check and UTF-8 validation |
+| `vllm` | `json.load()` parses `model.json` and checks that the top-level value is a JSON object |
+| `tensorrt` | Verifies `model.plan` is non-empty. No deeper check (final loadability depends on runtime TensorRT compatibility) |
+
+Set `TRITON_STRICT_DEEP_VALIDATION=1` to fail resolution when a requested deep validator is unavailable (currently only affects the ONNX check). With the default `0`, an unavailable validator emits a warning and the artifact is accepted.
+
+### Loadability checks
+
+After validation, an optional custom probe can be run via `TRITON_MODEL_LOADABILITY_CHECK`. Set it to a shell command that will be executed with:
+
+| Env var passed to probe | Value |
+|-------------------------|-------|
+| `TRITON_VALIDATE_MODEL_DIR` | Path to the validated model directory |
+| `TRITON_VALIDATE_MODEL` | Model name (`$TRITON_MODEL`) |
+| `TRITON_VALIDATE_BACKEND` | Comma-separated detected backends |
+
+If the command exits `0`, the model is accepted. If it exits non-zero:
+
+- **`TRITON_STRICT_LOADABILITY_CHECK=0`** (default): a warning is logged and resolution continues.
+- **`TRITON_STRICT_LOADABILITY_CHECK=1`**: resolution fails with the probe's stderr/stdout as the error message.
+
+```bash
+# Example: reject models larger than 10 GB
+TRITON_MODEL_LOADABILITY_CHECK='test $(du -sb "$TRITON_VALIDATE_MODEL_DIR" | cut -f1) -lt 10737418240' \
+  flox activate --start-services
+```
 
 ### HuggingFace download
 
@@ -318,9 +365,48 @@ TRITON_MODEL_SOURCES=local,hf-cache flox activate --start-services  # local + ca
 
 ### Locking and atomic swap
 
-- **Per-model lock**: acquired via `flock` before any source search. Lock file: `<env_file>.lock`. Timeout: `TRITON_RESOLVE_LOCK_TIMEOUT` seconds (default 300). Symlink and regular-file checks are enforced before opening.
-- **Atomic swap** (r2 and hf-hub only): downloads stage into a temp directory under `$TRITON_MODEL_REPOSITORY/.staging/`. After layout validation, the staged directory replaces the target via backup+rename. If the swap is interrupted, `lib::restore_backup` recovers the most recent backup on the next run.
+- **Per-model lock**: acquired before any source search. Lock file: `$TRITON_MODEL_STATE_DIR/triton-model.<slug>.<hash>.lock`. Timeout: `TRITON_RESOLVE_LOCK_TIMEOUT` seconds (default 300). Locking is performed by a background Python helper that uses `fcntl.flock()` with bounded polling (50 ms intervals) and sets `PR_SET_PDEATHSIG` so the lock is released if the parent shell dies. Symlink and regular-file checks are enforced before opening.
+- **Atomic swap** (r2 and hf-hub only): downloads stage into a temp directory under `$TRITON_MODEL_REPOSITORY/.staging/`. After layout validation, the staged directory is published via the configured `TRITON_PUBLISH_STRATEGY` (see [Publishing strategies](#publishing-strategies)). If a `replace-dir` swap is interrupted, `lib::restore_backup` recovers the most recent backup on the next run.
 - **Staging cleanup**: staging directories and download logs are cleaned up on success. On failure, logs are preserved for debugging.
+
+### Publishing strategies
+
+After a model is downloaded and validated, it is published into the target directory using one of two strategies controlled by `TRITON_PUBLISH_STRATEGY`:
+
+**`symlink-store`** (default): model content is stored by content manifest SHA under `$TRITON_MODEL_REPOSITORY/.published/<model>/<sha>/`. The target directory (`$TRITON_MODEL_REPOSITORY/$TRITON_MODEL`) becomes a relative symlink pointing into the store. Benefits:
+
+- **Deduplication**: identical content (same SHA) is stored once regardless of how many times it is downloaded.
+- **Atomic symlink swap**: updating the target is a single `mv -T` of a temporary symlink, so readers never see a partially-written directory.
+- **No same-device constraint**: the store and target can be on different filesystems because the swap operates on a symlink, not a directory rename.
+
+**`replace-dir`**: the staged directory replaces the target directly via `mv -T` with an automatic backup/rollback mechanism. Requirements:
+
+- Staged and target directories must be on the **same filesystem** (`mv -T` requires it).
+- Benefits: no symlink indirection, simpler directory layout.
+
+**Migration**: if you switch an existing deployment from `replace-dir` to `symlink-store`, the target may already be a plain directory. Set `TRITON_PUBLISH_MIGRATE_TARGET_DIR=1` for a one-time run to move the existing directory aside and replace it with a symlink. After migration, unset the variable.
+
+### Provenance and no-op detection
+
+Each successful resolution writes a provenance file at `$TRITON_MODEL_STATE_DIR/triton-model.<slug>.<hash>.provenance.json` containing:
+
+| Field | Description |
+|-------|-------------|
+| `source` | Source that resolved the model (`flox`, `local`, `r2`, `hf-hub`, `hf-cache`) |
+| `source_identity` | Model ID, path, or bucket key used |
+| `requested_revision` | Revision requested (branch/tag), if any |
+| `resolved_revision` | Actual commit or revision resolved, if any |
+| `remote_manifest_sha` | Content SHA of the remote listing (R2), if available |
+| `local_manifest_sha` | Content manifest SHA of the local directory tree |
+| `resolved_repository` | Model repository base path |
+| `resolved_path` | Full path to the resolved model directory |
+| `backends_detected` | List of detected backends |
+| `versions` | List of numeric version directories found |
+| `recorded_at` | ISO 8601 UTC timestamp |
+
+The content manifest SHA is computed by walking the directory tree and hashing every file's content, size, and relative path.
+
+**No-op detection**: on re-run, if the provenance file exists and the current local manifest SHA matches the recorded provenance (plus source, identity, and revision where applicable), the remote download is skipped entirely. This makes repeated `flox activate --start-services` cycles fast when the model has not changed.
 
 ### R2 (S3-compatible storage)
 
@@ -335,7 +421,16 @@ The download is staged, validated, and then atomically swapped into the target d
 
 ### HF cache source
 
-When `hf-cache` is in the source chain, the script scans `$TRITON_MODEL_REPOSITORY/hub/models--<slug>/snapshots/` for valid model layouts. Snapshots are checked newest-first (by modification time). The slug is derived from the model ID by replacing `/` with `--`. This source requires `TRITON_MODEL_ID` or `TRITON_MODEL_ORG` to be set.
+When `hf-cache` is in the source chain, the script searches standard HuggingFace cache locations for a usable snapshot. Cache roots are tried in order:
+
+1. `$TRITON_HF_CACHE_DIR` (explicit override)
+2. `$HF_HUB_CACHE`
+3. `$HUGGINGFACE_HUB_CACHE`
+4. `$HF_HOME/hub`
+5. `$XDG_CACHE_HOME/huggingface/hub`
+6. `~/.cache/huggingface/hub`
+
+Within each cache root, the script scans `models--<slug>/snapshots/` for valid model layouts. Snapshots are checked newest-first (by modification time). The slug is derived from the model ID by replacing `/` with `--`. This source requires `TRITON_MODEL_ID` or `TRITON_MODEL_ORG` to be set.
 
 ## Pre-flight (triton-preflight)
 
@@ -729,7 +824,8 @@ If a previous run was killed mid-operation:
 rm -f /tmp/triton-preflight.lock
 
 # For triton-resolve-model (per-model lock)
-rm -f "$FLOX_ENV_CACHE"/triton-model.*.env.lock
+# Default state dir is $FLOX_ENV_CACHE, or $TRITON_MODEL_REPOSITORY/.triton-resolve-state
+rm -f "$TRITON_MODEL_STATE_DIR"/triton-model.*.lock
 ```
 
 ### Inspecting the generated command
@@ -797,4 +893,4 @@ All lock files are validated before use:
 - Symlinks are rejected (`[[ ! -L "$lockfile" ]]`).
 - Only regular files are accepted (`[[ -f "$lockfile" ]]`).
 - Created with `umask 077` to restrict access.
-- Acquired with `flock -w <timeout>` to prevent indefinite hangs.
+- Acquired via a background Python helper using `fcntl.flock()` with bounded polling and `TRITON_RESOLVE_LOCK_TIMEOUT` to prevent indefinite hangs. The helper sets `PR_SET_PDEATHSIG` so the lock is automatically released if the parent process dies.
