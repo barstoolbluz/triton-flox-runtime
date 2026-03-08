@@ -36,11 +36,6 @@
 #   FLOX_ENV                  For flox source
 #   FLOX_ENV_CACHE            Preferred default state dir when present
 #   R2_BUCKET, R2_MODELS_PREFIX, R2_ENDPOINT_URL  For R2 source
-#   TRITON_HF_CACHE_DIR       Explicit Hugging Face hub cache root for hf-cache source
-#   TRITON_PUBLISH_STRATEGY   symlink-store (default) or replace-dir
-#   TRITON_PUBLISH_MIGRATE_TARGET_DIR  Allow one-time non-atomic cutover from a directory target to symlink-store (default: 0)
-#   TRITON_MODEL_LOADABILITY_CHECK     Optional shell command for a real loadability probe
-#   TRITON_STRICT_LOADABILITY_CHECK    Fail if the loadability probe fails (default: 0)
 
 set -euo pipefail
 umask 077
@@ -64,6 +59,7 @@ unset _lib_candidate
 unset _lib_loaded
 
 command -v python3 >/dev/null 2>&1 || lib::die "python3 is required by triton-resolve-model"
+command -v flock >/dev/null 2>&1 || lib::die "flock(1) is required by triton-resolve-model"
 
 # --- Model validation / manifest / provenance helpers (Python) ---
 
@@ -192,22 +188,13 @@ def deep_validate_artifact(path, backend, result):
     if backend == "tensorrt":
         if not is_nonempty_file(path):
             return False, "model.plan is missing or empty"
-        result.setdefault("warnings", []).append("TensorRT engine was not deeply validated; final loadability still depends on user-space TensorRT/Triton runtime compatibility")
+        result.setdefault("warnings", []).append("TensorRT engine was not deeply validated; final loadability still depends on TensorRT/Triton runtime compatibility")
         return True, None
 
     if backend == "python":
         if not is_nonempty_file(path):
             return False, "model.py is missing or empty"
-        try:
-            source = open(path, "r", encoding="utf-8").read()
-            compile(source, path, "exec")
-            return True, None
-        except SyntaxError as exc:
-            return False, f"model.py has Python syntax errors: {exc}"
-        except UnicodeDecodeError as exc:
-            return False, f"model.py is not valid UTF-8 text: {exc}"
-        except Exception as exc:
-            return False, f"Could not inspect model.py: {exc}"
+        return True, None
 
     return True, None
 
@@ -356,22 +343,6 @@ print(hashlib.sha256(blob).hexdigest())
 PY
 }
 
-_safe_ensure_dir() {
-  local dir="${1-}"
-  [[ -n "$dir" ]] || lib::die "Directory path is empty"
-
-  lib::_prepare_parent_dir "$dir/.dirguard"
-  if [[ -e "$dir" || -L "$dir" ]]; then
-    [[ ! -L "$dir" ]] || lib::die "Directory path is a symlink: $dir"
-    [[ -d "$dir" ]] || lib::die "Path is not a directory: $dir"
-  else
-    mkdir -- "$dir" || lib::die "Failed to create directory: $dir"
-    lib::_fsync_dir "$(dirname -- "$dir")" || lib::die "fsync failed for parent directory: $(dirname -- "$dir")"
-  fi
-
-  [[ -w "$dir" ]] || lib::die "Directory is not writable: $dir"
-}
-
 _write_provenance_atomically() {
   local prov_file="$1"
   local source="$2"
@@ -385,40 +356,20 @@ _write_provenance_atomically() {
   local backends="${10}"
   local versions="${11}"
 
-  lib::_prepare_parent_dir "$prov_file"
-
   python3 - "$prov_file" "$source" "$source_identity" "$requested_revision" "$resolved_revision" "$remote_manifest_sha" "$local_manifest_sha" "$resolved_repo" "$resolved_path" "$backends" "$versions" <<'PY'
 import json
 import os
-import stat
 import sys
 import tempfile
 from datetime import datetime, timezone
 
 prov_file, source, source_identity, requested_revision, resolved_revision, remote_manifest_sha, local_manifest_sha, resolved_repo, resolved_path, backends, versions = sys.argv[1:12]
 parent = os.path.dirname(prov_file) or "."
-base = os.path.basename(prov_file)
-if not base:
-    raise SystemExit(f"Provenance file path has no basename: {prov_file}")
-
-dir_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
-file_flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
-dirfd = os.open(parent, dir_flags)
-tmp = None
+os.makedirs(parent, mode=0o700, exist_ok=True)
+fd, tmp = tempfile.mkstemp(prefix=".prov.", dir=parent)
 try:
-    existing = None
-    try:
-        fd = os.open(base, file_flags, dir_fd=dirfd)
-    except FileNotFoundError:
-        pass
-    else:
-        st = os.fstat(fd)
-        if not stat.S_ISREG(st.st_mode):
-            raise SystemExit(f"Provenance file is not a regular file: {prov_file}")
-        with os.fdopen(fd, "r", encoding="utf-8") as fh:
-            existing = json.load(fh)
-
-    core = {
+    payload = {
+        "recorded_at": datetime.now(timezone.utc).isoformat(),
         "source": source,
         "source_identity": source_identity,
         "requested_revision": requested_revision,
@@ -430,40 +381,19 @@ try:
         "backends_detected": [x for x in backends.split(",") if x],
         "versions": [int(x) for x in versions.split(",") if x],
     }
-
-    payload = dict(core)
-    if isinstance(existing, dict):
-        existing_recorded_at = str(existing.get("recorded_at") or "")
-        existing_core = {k: existing.get(k) for k in core.keys()}
-        if existing_core == core and existing_recorded_at:
-            payload["recorded_at"] = existing_recorded_at
-        else:
-            payload["recorded_at"] = datetime.now(timezone.utc).isoformat()
-    else:
-        payload["recorded_at"] = datetime.now(timezone.utc).isoformat()
-
-    blob = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
-
-    if isinstance(existing, dict):
-        existing_blob = json.dumps(existing, sort_keys=True, separators=(",", ":")).encode("utf-8")
-        if existing_blob == blob:
-            raise SystemExit(0)
-
-    fd, tmp = tempfile.mkstemp(prefix=".prov.", dir=parent)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        json.dump(payload, fh, sort_keys=True, separators=(",", ":"))
+        fh.flush()
+        os.fsync(fh.fileno())
+    os.replace(tmp, prov_file)
+    dfd = os.open(parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
     try:
-        os.fchmod(fd, 0o600)
-        with os.fdopen(fd, "wb") as fh:
-            fh.write(blob)
-            fh.flush()
-            os.fsync(fh.fileno())
-        os.replace(tmp, prov_file)
-        tmp = None
-        os.fsync(dirfd)
+        os.fsync(dfd)
     finally:
-        if tmp and os.path.exists(tmp):
-            os.unlink(tmp)
+        os.close(dfd)
 finally:
-    os.close(dirfd)
+    if os.path.exists(tmp):
+        os.unlink(tmp)
 PY
 }
 
@@ -479,29 +409,13 @@ _provenance_matches_target() {
 
   python3 - "$prov_file" "$expected_source" "$expected_identity" "$expected_resolved_revision" "$expected_remote_manifest_sha" "$current_local_manifest_sha" <<'PY'
 import json
-import os
-import stat
 import sys
 
 prov_file, expected_source, expected_identity, expected_resolved_revision, expected_remote_manifest_sha, current_local_manifest_sha = sys.argv[1:7]
-parent = os.path.dirname(prov_file) or "."
-base = os.path.basename(prov_file)
-if not base:
-    raise SystemExit(1)
-
-dir_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
-file_flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
-
-dirfd = os.open(parent, dir_flags)
 try:
-    fd = os.open(base, file_flags, dir_fd=dirfd)
-    st = os.fstat(fd)
-    if not stat.S_ISREG(st.st_mode):
-        raise SystemExit(1)
-    with os.fdopen(fd, "r", encoding="utf-8") as fh:
-        payload = json.load(fh)
-finally:
-    os.close(dirfd)
+    payload = json.load(open(prov_file, "r", encoding="utf-8"))
+except Exception:
+    raise SystemExit(1)
 
 if payload.get("source") != expected_source:
     raise SystemExit(1)
@@ -533,20 +447,14 @@ _maybe_init_timeout_prefix() {
   fi
 }
 
-_network_attempts_total() {
-  printf '%d' "$((TRITON_RESOLVE_NETWORK_RETRIES + 1))"
-}
-
 _run_network_to_log() {
   local log="$1"
   shift
-  local attempt rc total_attempts
-  total_attempts="$(_network_attempts_total)"
-  rc=0
+  local attempt rc
   : >"$log"
-  for ((attempt=1; attempt<=total_attempts; attempt++)); do
+  for ((attempt=1; attempt<=TRITON_RESOLVE_NETWORK_RETRIES; attempt++)); do
     rc=0
-    printf '== attempt %d/%d ==\n' "$attempt" "$total_attempts" >>"$log"
+    printf '== attempt %d/%d ==\n' "$attempt" "$TRITON_RESOLVE_NETWORK_RETRIES" >>"$log"
     if (( ${#_network_timeout_prefix[@]} > 0 )); then
       "${_network_timeout_prefix[@]}" "$@" >>"$log" 2>&1 || rc=$?
     else
@@ -556,7 +464,7 @@ _run_network_to_log() {
       return 0
     fi
     printf 'command failed with rc=%s\n' "$rc" >>"$log"
-    if (( attempt < total_attempts )); then
+    if (( attempt < TRITON_RESOLVE_NETWORK_RETRIES )); then
       sleep "$TRITON_RESOLVE_RETRY_SLEEP"
     fi
   done
@@ -567,15 +475,13 @@ _capture_network_stdout() {
   local stdout_file="$1"
   local log="$2"
   shift 2
-  local tmp_out attempt rc total_attempts
-  total_attempts="$(_network_attempts_total)"
+  local tmp_out attempt rc
   tmp_out="$(mktemp "$(dirname -- "$stdout_file")/.capture.XXXXXX")"
-  rc=0
   : >"$log"
-  for ((attempt=1; attempt<=total_attempts; attempt++)); do
+  for ((attempt=1; attempt<=TRITON_RESOLVE_NETWORK_RETRIES; attempt++)); do
     rc=0
     : >"$tmp_out"
-    printf '== attempt %d/%d ==\n' "$attempt" "$total_attempts" >>"$log"
+    printf '== attempt %d/%d ==\n' "$attempt" "$TRITON_RESOLVE_NETWORK_RETRIES" >>"$log"
     if (( ${#_network_timeout_prefix[@]} > 0 )); then
       "${_network_timeout_prefix[@]}" "$@" >"$tmp_out" 2>>"$log" || rc=$?
     else
@@ -586,7 +492,7 @@ _capture_network_stdout() {
       return 0
     fi
     printf 'command failed with rc=%s\n' "$rc" >>"$log"
-    if (( attempt < total_attempts )); then
+    if (( attempt < TRITON_RESOLVE_NETWORK_RETRIES )); then
       sleep "$TRITON_RESOLVE_RETRY_SLEEP"
     fi
   done
@@ -661,58 +567,45 @@ _r2_remote_manifest_json() {
   local bucket="$3"
   local prefix="$4"
   local endpoint_url="$5"
+  local raw_json
+  raw_json="$(mktemp "$(dirname -- "$out_json")/.r2raw.XXXXXX")"
 
-  _capture_network_stdout "$out_json" "$log"     python3 - "$bucket" "$prefix" "$endpoint_url" <<'PY'
+  local aws_args=()
+  [[ -n "$endpoint_url" ]] && aws_args+=(--endpoint-url "$endpoint_url")
+
+  if ! _capture_network_stdout "$raw_json" "$log" aws "${aws_args[@]}" s3api list-objects-v2 --bucket "$bucket" --prefix "$prefix" --output json; then
+    rm -f -- "$raw_json"
+    return 1
+  fi
+
+  python3 - "$raw_json" "$out_json" "$prefix" <<'PY'
 import json
-import subprocess
+import os
 import sys
 
-bucket, prefix, endpoint_url = sys.argv[1:4]
-base_cmd = ["aws"]
-if endpoint_url:
-    base_cmd += ["--endpoint-url", endpoint_url]
-base_cmd += ["s3api", "list-objects-v2", "--bucket", bucket, "--prefix", prefix, "--output", "json"]
-
-items = {}
-continuation_token = ""
-seen_tokens = set()
-
-while True:
-    cmd = list(base_cmd)
-    if continuation_token:
-        cmd += ["--continuation-token", continuation_token]
-    proc = subprocess.run(cmd, capture_output=True, text=True)
-    if proc.returncode != 0:
-        if proc.stdout:
-            sys.stderr.write(proc.stdout)
-        if proc.stderr:
-            sys.stderr.write(proc.stderr)
-        raise SystemExit(proc.returncode)
-    payload = json.loads(proc.stdout or "{}")
-    for obj in payload.get("Contents") or []:
-        key = obj.get("Key", "")
-        if not key.startswith(prefix):
-            continue
-        rel = key[len(prefix):]
-        if not rel or rel.endswith("/"):
-            continue
-        items[rel] = {
-            "path": rel,
-            "size": int(obj.get("Size", 0)),
-            "etag": (obj.get("ETag", "") or "").strip('"'),
-            "last_modified": obj.get("LastModified", "") or "",
-        }
-    if not payload.get("IsTruncated"):
-        break
-    next_token = payload.get("NextContinuationToken") or ""
-    if not next_token or next_token in seen_tokens:
-        raise SystemExit("R2 manifest pagination failed: invalid continuation token")
-    seen_tokens.add(next_token)
-    continuation_token = next_token
-
-out = [items[path] for path in sorted(items)]
-print(json.dumps(out, sort_keys=True, separators=(",", ":")))
+raw_json, out_json, prefix = sys.argv[1:4]
+with open(raw_json, "r", encoding="utf-8") as fh:
+    payload = json.load(fh)
+contents = payload.get("Contents", []) or []
+items = []
+for obj in contents:
+    key = obj.get("Key", "")
+    if not key.startswith(prefix):
+        continue
+    rel = key[len(prefix):]
+    if not rel:
+        continue
+    items.append({
+        "path": rel,
+        "size": int(obj.get("Size", 0)),
+        "etag": (obj.get("ETag", "") or "").strip('"'),
+        "last_modified": obj.get("LastModified", "") or "",
+    })
+items.sort(key=lambda x: x["path"])
+with open(out_json, "w", encoding="utf-8") as fh:
+    json.dump(items, fh, sort_keys=True, separators=(",", ":"))
 PY
+  rm -f -- "$raw_json"
 }
 
 _file_sha256() {
@@ -729,95 +622,6 @@ with open(path, 'rb') as fh:
             break
         h.update(chunk)
 print(h.hexdigest())
-PY
-}
-
-_hf_cache_info_json() {
-  local repo_id="$1"
-  local requested_revision="$2"
-  local out_json="$3"
-
-  python3 - "$repo_id" "$requested_revision" "$out_json" "${TRITON_HF_CACHE_DIR:-}" <<'PY'
-import json
-import os
-import sys
-
-repo_id, requested_revision, out_json, explicit_cache_dir = sys.argv[1:5]
-
-def add_candidate(values, candidate):
-    if not candidate:
-        return
-    candidate = os.path.expanduser(candidate)
-    if candidate not in values:
-        values.append(candidate)
-
-candidates = []
-add_candidate(candidates, explicit_cache_dir)
-add_candidate(candidates, os.environ.get("HF_HUB_CACHE"))
-add_candidate(candidates, os.environ.get("HUGGINGFACE_HUB_CACHE"))
-hf_home = os.environ.get("HF_HOME")
-if hf_home:
-    add_candidate(candidates, os.path.join(hf_home, "hub"))
-xdg_cache_home = os.environ.get("XDG_CACHE_HOME")
-if xdg_cache_home:
-    add_candidate(candidates, os.path.join(xdg_cache_home, "huggingface", "hub"))
-add_candidate(candidates, os.path.join("~", ".cache", "huggingface", "hub"))
-
-slug = repo_id.replace("/", "--")
-repo_dir_name = f"models--{slug}"
-
-def resolve_requested_snapshot(repo_root, snapshots_dir, revision):
-    if not revision:
-        return "", ""
-    direct = os.path.join(snapshots_dir, revision)
-    if os.path.isdir(direct):
-        return direct, revision
-    ref_path = os.path.join(repo_root, "refs", *revision.split("/"))
-    try:
-        ref_value = open(ref_path, "r", encoding="utf-8").read().strip()
-    except OSError:
-        return "", ""
-    if not ref_value:
-        return "", ""
-    resolved = os.path.join(snapshots_dir, ref_value)
-    if os.path.isdir(resolved):
-        return resolved, ref_value
-    return "", ""
-
-for cache_root in candidates:
-    repo_root = os.path.join(cache_root, repo_dir_name)
-    snapshots_dir = os.path.join(repo_root, "snapshots")
-    if not os.path.isdir(snapshots_dir):
-        continue
-
-    selected = ""
-    resolved_revision = ""
-    if requested_revision:
-        selected, resolved_revision = resolve_requested_snapshot(repo_root, snapshots_dir, requested_revision)
-        if not selected:
-            continue
-    else:
-        snapshots = []
-        for entry in os.listdir(snapshots_dir):
-            full = os.path.join(snapshots_dir, entry)
-            if os.path.isdir(full):
-                snapshots.append(full)
-        if not snapshots:
-            continue
-        snapshots.sort(key=lambda path: os.path.getmtime(path), reverse=True)
-        selected = snapshots[0]
-        resolved_revision = os.path.basename(selected)
-
-    with open(out_json, "w", encoding="utf-8") as fh:
-        json.dump({
-            "cache_root": cache_root,
-            "repo_root": repo_root,
-            "snapshot_dir": selected,
-            "resolved_revision": resolved_revision,
-        }, fh, sort_keys=True, separators=(",", ":"))
-    raise SystemExit(0)
-
-raise SystemExit(1)
 PY
 }
 
@@ -841,17 +645,10 @@ TRITON_STRICT_DEEP_VALIDATION="${TRITON_STRICT_DEEP_VALIDATION:-0}"
 TRITON_KEEP_LOGS="${TRITON_KEEP_LOGS:-0}"
 TRITON_MODEL_ENV_FILE="${TRITON_MODEL_ENV_FILE:-}"
 TRITON_MODEL_STATE_DIR="${TRITON_MODEL_STATE_DIR:-}"
-TRITON_HF_CACHE_DIR="${TRITON_HF_CACHE_DIR:-}"
-TRITON_PUBLISH_STRATEGY="${TRITON_PUBLISH_STRATEGY:-symlink-store}"
-TRITON_PUBLISH_MIGRATE_TARGET_DIR="${TRITON_PUBLISH_MIGRATE_TARGET_DIR:-0}"
-TRITON_MODEL_LOADABILITY_CHECK="${TRITON_MODEL_LOADABILITY_CHECK:-}"
-TRITON_STRICT_LOADABILITY_CHECK="${TRITON_STRICT_LOADABILITY_CHECK:-0}"
 
 lib::normalize_bool_var TRITON_DEEP_VALIDATE 0 1
 lib::normalize_bool_var TRITON_STRICT_DEEP_VALIDATION 0 1
 lib::normalize_bool_var TRITON_KEEP_LOGS 0 1
-lib::normalize_bool_var TRITON_PUBLISH_MIGRATE_TARGET_DIR 0 1
-lib::normalize_bool_var TRITON_STRICT_LOADABILITY_CHECK 0 1
 lib::is_int "$TRITON_RESOLVE_LOCK_TIMEOUT" || lib::die "TRITON_RESOLVE_LOCK_TIMEOUT must be a non-negative integer, got: $TRITON_RESOLVE_LOCK_TIMEOUT"
 lib::is_int "$TRITON_RESOLVE_NETWORK_RETRIES" || lib::die "TRITON_RESOLVE_NETWORK_RETRIES must be a non-negative integer, got: $TRITON_RESOLVE_NETWORK_RETRIES"
 lib::is_int "$TRITON_RESOLVE_NETWORK_TIMEOUT" || lib::die "TRITON_RESOLVE_NETWORK_TIMEOUT must be a non-negative integer, got: $TRITON_RESOLVE_NETWORK_TIMEOUT"
@@ -862,21 +659,10 @@ case "$TRITON_MODEL_BACKEND" in
   *) lib::die "TRITON_MODEL_BACKEND must be one of: tensorrt, onnx, pytorch, tensorflow, python, vllm; got: $TRITON_MODEL_BACKEND" ;;
 esac
 
-case "$TRITON_PUBLISH_STRATEGY" in
-  symlink-store|replace-dir) ;;
-  *) lib::die "TRITON_PUBLISH_STRATEGY must be one of: symlink-store, replace-dir; got: $TRITON_PUBLISH_STRATEGY" ;;
-esac
-
 _maybe_init_timeout_prefix
-_safe_ensure_dir "$TRITON_MODEL_REPOSITORY"
+mkdir -p "$TRITON_MODEL_REPOSITORY"
 
 _target_dir="$TRITON_MODEL_REPOSITORY/$TRITON_MODEL"
-_publish_root_base="$TRITON_MODEL_REPOSITORY/.published"
-_published_model_root="$_publish_root_base/$TRITON_MODEL"
-if [[ "$TRITON_PUBLISH_STRATEGY" == "symlink-store" ]]; then
-  _safe_ensure_dir "$_publish_root_base"
-  _safe_ensure_dir "$_published_model_root"
-fi
 
 _model_id=""
 if [[ -n "$TRITON_MODEL_ID" ]]; then
@@ -897,13 +683,13 @@ if [[ -z "$TRITON_MODEL_STATE_DIR" ]]; then
     TRITON_MODEL_STATE_DIR="$TRITON_MODEL_REPOSITORY/.triton-resolve-state"
   fi
 fi
-_safe_ensure_dir "$TRITON_MODEL_STATE_DIR"
+mkdir -p "$TRITON_MODEL_STATE_DIR"
 
 if [[ -z "$TRITON_MODEL_ENV_FILE" ]]; then
   TRITON_MODEL_ENV_FILE="$TRITON_MODEL_STATE_DIR/triton-model.${_model_slug}.${_target_hash}.env"
 fi
 _model_env="$TRITON_MODEL_ENV_FILE"
-_safe_ensure_dir "$(dirname -- "$_model_env")"
+mkdir -p "$(dirname -- "$_model_env")"
 
 _lock_file="$TRITON_MODEL_STATE_DIR/triton-model.${_model_slug}.${_target_hash}.lock"
 _provenance_file="$TRITON_MODEL_STATE_DIR/triton-model.${_model_slug}.${_target_hash}.provenance.json"
@@ -928,7 +714,7 @@ _source_errors=""
 _add_error() { _source_errors+="  $1"$'\n'; }
 
 _stage_base="$TRITON_MODEL_REPOSITORY/.staging"
-_safe_ensure_dir "$_stage_base"
+mkdir -p "$_stage_base"
 
 _logfiles=()
 _stage_dirs=()
@@ -950,141 +736,16 @@ _cleanup_logs_on_success() {
 LOCK_FD=""
 
 _acquire_lock_or_die() {
-  lib::_prepare_parent_dir "$_lock_file"
-  lib::flock_open_or_die LOCK_FD "$_lock_file" "$TRITON_RESOLVE_LOCK_TIMEOUT" "triton-resolve-model:$TRITON_MODEL"
+  exec {LOCK_FD}>>"$_lock_file"
+  flock -w "$TRITON_RESOLVE_LOCK_TIMEOUT" "$LOCK_FD" || lib::die "Lock timeout after ${TRITON_RESOLVE_LOCK_TIMEOUT}s: $_lock_file"
 }
 
 _release_lock() {
   if [[ -n "${LOCK_FD:-}" ]]; then
-    lib::flock_close "$LOCK_FD"
+    flock -u "$LOCK_FD" 2>/dev/null || true
+    eval "exec ${LOCK_FD}>&-"
     LOCK_FD=''
   fi
-}
-
-_path_rel_to_dir() {
-  local from_dir="$1"
-  local to_path="$2"
-  python3 - "$from_dir" "$to_path" <<'PY'
-import os
-import sys
-print(os.path.relpath(sys.argv[2], sys.argv[1]))
-PY
-}
-
-_atomic_replace_symlink() {
-  local link_path="$1"
-  local link_target="$2"
-  local parent base tmp
-  parent="$(dirname -- "$link_path")"
-  base="$(basename -- "$link_path")"
-  lib::_prepare_parent_dir "$link_path"
-  [[ ! -e "$link_path" || -L "$link_path" ]] || lib::die "Cannot atomically replace non-symlink target without migration: $link_path"
-  tmp="${parent}/.${base}.tmp.$$.$RANDOM"
-  ln -s -- "$link_target" "$tmp" || lib::die "Failed to create temporary symlink: $tmp -> $link_target"
-  if mv -T -- "$tmp" "$link_path"; then
-    lib::_fsync_dir "$parent" || lib::die "fsync failed for directory: $parent"
-    return 0
-  fi
-  rm -f -- "$tmp" 2>/dev/null || true
-  lib::die "Failed to atomically publish symlink: $link_path"
-}
-
-_migrate_directory_target_to_symlink() {
-  local target="$1"
-  local relative_store_target="$2"
-  local parent backup
-  parent="$(dirname -- "$target")"
-  backup="${target}.pre-symlink-migration.$$.$RANDOM"
-
-  [[ -d "$target" && ! -L "$target" ]] || lib::die "Migration requires an existing directory target: $target"
-
-  mv -T -- "$target" "$backup" || lib::die "Failed to move target aside for symlink migration: $target"
-  lib::_fsync_dir "$parent" || lib::die "fsync failed for directory: $parent"
-
-  if _atomic_replace_symlink "$target" "$relative_store_target"; then
-    rm -rf -- "$backup" || lib::warn "Failed to remove pre-migration backup directory: $backup"
-    lib::_fsync_dir "$parent" || lib::warn "fsync failed after removing migration backup: $parent"
-    return 0
-  fi
-
-  if [[ ! -e "$target" && ! -L "$target" ]]; then
-    mv -T -- "$backup" "$target" || lib::die "Rollback failed after symlink migration failure: $backup -> $target"
-    lib::_fsync_dir "$parent" || lib::die "fsync failed after rollback in directory: $parent"
-  fi
-  return 1
-}
-
-_publish_stage_dir() {
-  local stage_dir="$1"
-  local staged_manifest_sha="$2"
-  local publish_strategy="$3"
-
-  case "$publish_strategy" in
-    replace-dir)
-      : >"$stage_dir/.complete"
-      lib::replace_dir_with_backup "$stage_dir" "$_target_dir"
-      return $?
-      ;;
-    symlink-store)
-      local store_dir parent relative_store_target
-      parent="$(dirname -- "$_target_dir")"
-      store_dir="$_published_model_root/$staged_manifest_sha"
-
-      if [[ -e "$store_dir" || -L "$store_dir" ]]; then
-        [[ ! -L "$store_dir" ]] || lib::die "Published store path is a symlink: $store_dir"
-        [[ -d "$store_dir" ]] || lib::die "Published store path is not a directory: $store_dir"
-        rm -rf -- "$stage_dir" || lib::die "Failed to remove redundant staged directory: $stage_dir"
-      else
-        mv -T -- "$stage_dir" "$store_dir" || lib::die "Failed to move staged directory into published store: $stage_dir -> $store_dir"
-        lib::_fsync_dir "$_published_model_root" || lib::die "fsync failed for published store directory: $_published_model_root"
-      fi
-
-      relative_store_target="$(_path_rel_to_dir "$parent" "$store_dir")"
-      if [[ -e "$_target_dir" && ! -L "$_target_dir" ]]; then
-        if [[ "$TRITON_PUBLISH_MIGRATE_TARGET_DIR" != "1" ]]; then
-          lib::die "Target exists as a directory and symlink-store publishing is enabled: $_target_dir. Re-run once with TRITON_PUBLISH_MIGRATE_TARGET_DIR=1 during a maintenance window, or set TRITON_PUBLISH_STRATEGY=replace-dir."
-        fi
-        _migrate_directory_target_to_symlink "$_target_dir" "$relative_store_target"
-      else
-        _atomic_replace_symlink "$_target_dir" "$relative_store_target"
-      fi
-      return 0
-      ;;
-  esac
-
-  lib::die "Unknown publish strategy: $publish_strategy"
-}
-
-_run_loadability_check() {
-  local dir="$1"
-  local backend_summary="$2"
-  local probe_output rc
-
-  [[ -n "$TRITON_MODEL_LOADABILITY_CHECK" ]] || return 0
-
-  rc=0
-  probe_output="$(
-    TRITON_VALIDATE_MODEL_DIR="$dir" \
-    TRITON_VALIDATE_MODEL="$TRITON_MODEL" \
-    TRITON_VALIDATE_BACKEND="$backend_summary" \
-    bash -lc "$TRITON_MODEL_LOADABILITY_CHECK"
-  2>&1)" || rc=$?
-
-  if [[ "$rc" -eq 0 ]]; then
-    return 0
-  fi
-
-  if [[ "$TRITON_STRICT_LOADABILITY_CHECK" == "1" ]]; then
-    _CHECK_ERR="loadability check failed: ${probe_output:-command exited with rc=$rc}"
-    return 1
-  fi
-
-  if [[ -n "$probe_output" ]]; then
-    _resolved_validation_warnings="${_resolved_validation_warnings:+$_resolved_validation_warnings | }loadability check failed non-fatally: $probe_output"
-  else
-    _resolved_validation_warnings="${_resolved_validation_warnings:+$_resolved_validation_warnings | }loadability check failed non-fatally with rc=$rc"
-  fi
-  return 0
 }
 
 cleanup() {
@@ -1099,9 +760,7 @@ cleanup() {
 trap cleanup EXIT
 
 _acquire_lock_or_die
-if [[ "$TRITON_PUBLISH_STRATEGY" == "replace-dir" ]]; then
-  lib::restore_backup "$_target_dir"
-fi
+lib::restore_backup "$_target_dir"
 
 # Parse validation JSON output
 _parse_validation() {
@@ -1116,11 +775,7 @@ _try_validate() {
   local json_out
   if json_out="$(_validate_model_repo "$dir" "$TRITON_MODEL_BACKEND" "$TRITON_DEEP_VALIDATE" "$TRITON_STRICT_DEEP_VALIDATION")"; then
     _parse_validation "$json_out"
-    _CHECK_ERR=""
-    if _run_loadability_check "$dir" "$_resolved_backends"; then
-      return 0
-    fi
-    return 1
+    return 0
   else
     local err_msg
     err_msg="$(python3 -c "import json,sys;d=json.loads(sys.argv[1]);print(d.get('error','unknown'))" "$json_out" 2>/dev/null || echo "validation failed")"
@@ -1245,25 +900,32 @@ for _src in "${_sources[@]}"; do
         continue
       fi
 
-      _hf_cache_info="$(mktemp "$_stage_base/${TRITON_MODEL}.hf-cache.info.XXXXXX.json")"
-      if _hf_cache_info_json "$_model_id" "$TRITON_MODEL_REVISION" "$_hf_cache_info"; then
-        _hf_snapshot_dir="$(python3 -c "import json,sys;print(json.load(open(sys.argv[1])).get('snapshot_dir',''))" "$_hf_cache_info" 2>/dev/null || true)"
-        _hf_repo_root="$(python3 -c "import json,sys;print(json.load(open(sys.argv[1])).get('repo_root',''))" "$_hf_cache_info" 2>/dev/null || true)"
-        _hf_resolved_rev="$(python3 -c "import json,sys;print(json.load(open(sys.argv[1])).get('resolved_revision',''))" "$_hf_cache_info" 2>/dev/null || true)"
-        rm -f -- "$_hf_cache_info"
+      _hf_slug="${_model_id//\//--}"
+      _hf_cache_dir="$TRITON_MODEL_REPOSITORY/hub/models--$_hf_slug"
+      if [[ -d "$_hf_cache_dir/snapshots" ]]; then
+        _found_snap=0
+        while IFS= read -r _snap_dir; do
+          [[ -d "$_snap_dir" ]] || continue
+          _snap_rev="$(basename -- "${_snap_dir%/}")"
+          if [[ -n "$TRITON_MODEL_REVISION" && "$TRITON_MODEL_REVISION" != "$_snap_rev" ]]; then
+            continue
+          fi
+          if _try_validate "${_snap_dir%/}"; then
+            _found_snap=1
+            _PROV_SOURCE_IDENTITY="hf://$_model_id"
+            _PROV_RESOLVED_REVISION="$_snap_rev"
+            break
+          fi
+        done < <(ls -td "$_hf_cache_dir/snapshots"/*/ 2>/dev/null || true)
 
-        if [[ -n "$_hf_snapshot_dir" ]] && _try_validate "$_hf_snapshot_dir"; then
-          _PROV_SOURCE_IDENTITY="hf://$_model_id"
-          _PROV_RESOLVED_REVISION="$_hf_resolved_rev"
-          _finalize_resolution "hf-cache" "${_hf_repo_root:-$(dirname -- "$_hf_snapshot_dir")}" "$_hf_snapshot_dir"
+        if (( _found_snap )); then
+          _finalize_resolution "hf-cache" "$TRITON_MODEL_REPOSITORY" "${_snap_dir%/}"
           lib::log "[model] Checking HF cache... OK"
           break
         fi
-      else
-        rm -f -- "$_hf_cache_info"
       fi
       lib::verbose "  not found"
-      _add_error "hf-cache: no usable snapshot found in configured or standard Hugging Face cache roots"
+      _add_error "hf-cache: no usable snapshot at $_hf_cache_dir/"
       ;;
 
     r2)
@@ -1282,6 +944,11 @@ for _src in "${_sources[@]}"; do
       _aws_args=()
       [[ -n "${R2_ENDPOINT_URL:-}" ]] && _aws_args+=(--endpoint-url "$R2_ENDPOINT_URL")
 
+      if ! aws "${_aws_args[@]}" sts get-caller-identity >/dev/null 2>&1; then
+        lib::verbose "  failed (no credentials)"
+        _add_error "r2: aws sts get-caller-identity failed"
+        continue
+      fi
 
       _remote_manifest_json="$(mktemp "$_stage_base/${TRITON_MODEL}.r2.manifest.XXXXXX.json")"
       _logfile="$(mktemp "$_stage_base/${TRITON_MODEL}.r2.log.XXXXXX")"
@@ -1320,14 +987,14 @@ for _src in "${_sources[@]}"; do
             lib::log "[model] Fetching from R2... NOOP"
             break
           fi
-          if _publish_stage_dir "$_stage_dir" "$_staged_manifest_sha" "$TRITON_PUBLISH_STRATEGY"; then
+          : >"$_stage_dir/.complete"
+          if lib::replace_dir_with_backup "$_stage_dir" "$_target_dir"; then
             _finalize_resolution "r2" "$TRITON_MODEL_REPOSITORY" "$_target_dir"
-            _stage_dir=""
             lib::log "[model] Fetching from R2... OK"
             break
           else
-            lib::verbose "  failed (publish error)"
-            _add_error "r2: publish into $_target_dir failed (log: $_logfile)"
+            lib::verbose "  failed (replace error)"
+            _add_error "r2: replace into $_target_dir failed (log: $_logfile)"
           fi
         else
           lib::verbose "  failed (validation)"
@@ -1383,14 +1050,14 @@ for _src in "${_sources[@]}"; do
             lib::log "[model] Downloading from HuggingFace Hub... NOOP"
             break
           fi
-          if _publish_stage_dir "$_stage_dir" "$_staged_manifest_sha" "$TRITON_PUBLISH_STRATEGY"; then
+          : >"$_stage_dir/.complete"
+          if lib::replace_dir_with_backup "$_stage_dir" "$_target_dir"; then
             _finalize_resolution "hf-hub" "$TRITON_MODEL_REPOSITORY" "$_target_dir"
-            _stage_dir=""
             lib::log "[model] Downloading from HuggingFace Hub... OK"
             break
           else
-            lib::verbose "  failed (publish error)"
-            _add_error "hf-hub: publish into $_target_dir failed (log: $_logfile)"
+            lib::verbose "  failed (replace error)"
+            _add_error "hf-hub: replace into $_target_dir failed (log: $_logfile)"
           fi
         else
           lib::verbose "  failed (validation)"
@@ -1429,7 +1096,4 @@ fi
 
 lib::log "[model] Resolved: $_resolved_path (via $_resolved_via)"
 lib::log "[model] Env file: $_model_env"
-if [[ -n "$_resolved_validation_warnings" ]]; then
-  lib::warn "Validation notes: $_resolved_validation_warnings"
-fi
-exit 0
+[[ -n "$_resolved_validation_warnings" ]] && lib::warn "Validation notes: $_resolved_validation_warnings"
