@@ -1,29 +1,42 @@
 #!/usr/bin/env bash
-# triton-serve — Load resolved model env, validate config, exec tritonserver.
+# triton-serve — Load resolved model env, validate config, run an exact preflight,
+# and start Triton or the OpenAI-compatible frontend.
 #
 # Required env (after loading env file):
 #   TRITON_MODEL_REPOSITORY   Model repository path
 #   _TRITON_RESOLVED_PATH     From triton-resolve-model env file
 #
 # Optional env:
-#   TRITON_MODEL_ENV_FILE     Explicit env file path (otherwise derived from FLOX_ENV_CACHE)
-#   TRITON_HTTP_PORT          HTTP port (default: 8000)
-#   TRITON_GRPC_PORT          gRPC port (default: 8001)
-#   TRITON_METRICS_PORT       Metrics port (default: 8002)
-#   TRITON_MODEL_CONTROL_MODE none / explicit / poll (default: none)
-#   TRITON_LOG_VERBOSE        Verbosity level for tritonserver (default: 0)
-#   TRITON_STRICT_READINESS   Require all models ready (default: true)
-#   TRITON_ALLOW_HTTP         Enable HTTP (default: true)
-#   TRITON_ALLOW_GRPC         Enable gRPC (default: true)
-#   TRITON_ALLOW_METRICS      Enable metrics (default: true)
-#   TRITON_BACKEND_CONFIG     Comma-separated backend configs (default: empty)
-#   TRITON_ENV_FILE_TRUSTED   Trust env file / direct source (default: false)
-#   TRITON_OPENAI_FRONTEND    Enable OpenAI-compatible frontend (default: false)
-#   TRITON_OPENAI_PORT        OpenAI frontend port (default: 9000)
-#   TRITON_OPENAI_MAIN        Path to OpenAI frontend main.py (auto-discovered)
-#   TRITON_OPENAI_TOKENIZER   HF tokenizer for chat templates
-#   TRITON_HOST               Bind address (default: 0.0.0.0) -- passed to OpenAI frontend
-#   FLOX_ENV_CACHE            For env file path derivation
+#   TRITON_MODEL_ENV_FILE       Explicit env file path (otherwise derived from FLOX_ENV_CACHE)
+#   TRITON_HTTP_PORT            HTTP port (default: 8000)
+#   TRITON_GRPC_PORT            gRPC port (default: 8001)
+#   TRITON_METRICS_PORT         Metrics port (default: 8002)
+#   TRITON_MODEL_CONTROL_MODE   none / explicit / poll (default: none)
+#   TRITON_LOG_VERBOSE          Verbosity level for tritonserver (default: 0)
+#   TRITON_STRICT_READINESS     Require all models ready (default: true)
+#   TRITON_ALLOW_HTTP           Enable HTTP (default: true)
+#   TRITON_ALLOW_GRPC           Enable gRPC (default: true)
+#   TRITON_ALLOW_METRICS        Enable metrics (default: true)
+#   TRITON_BACKEND_CONFIG       Comma-separated backend configs (default: empty)
+#   TRITON_ENV_FILE_TRUSTED     Trust env file / direct source (default: false)
+#   TRITON_OPENAI_FRONTEND      Enable OpenAI-compatible frontend (default: false)
+#   TRITON_OPENAI_PORT          OpenAI frontend port (default: 9000)
+#   TRITON_OPENAI_MAIN          Path to OpenAI frontend main.py (auto-discovered)
+#   TRITON_OPENAI_TOKENIZER     HF tokenizer for chat templates
+#   TRITON_HOST                 Bind address (default: 0.0.0.0)
+#   FLOX_ENV_CACHE              For env file path derivation
+#
+# Production-oriented launcher controls:
+#   TRITON_SERVE_RUN_PREFLIGHT  Run a preflight before launch (default: true)
+#   TRITON_SERVE_PREFLIGHT_BIN  Override external preflight path (default: sibling or PATH)
+#   TRITON_SERVE_LOG_CONFIG     Emit effective config summary to stderr (default: true)
+#   TRITON_SERVE_WAIT_FOR_READY Wait for readiness before returning foreground control (default: false)
+#   TRITON_SERVE_READY_TIMEOUT  Readiness wait timeout in seconds (default: 30)
+#   TRITON_SERVE_READY_INTERVAL Readiness poll interval in seconds (default: 0.5)
+#   TRITON_SERVE_READY_URL      Override readiness URL (default: auto-derived when possible)
+#
+# Internal env:
+#   _TRITON_SERVE_PREFLIGHT_DONE  Internal marker set when preflight re-enters this script
 #
 # Usage:
 #   triton-serve [--print-cmd] [--dry-run] [--] [extra args...]
@@ -31,11 +44,16 @@
 set -Eeuo pipefail
 IFS=$'\n\t'
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=_lib.sh
-source "$SCRIPT_DIR/_lib.sh"
+readonly _TRITON_SERVE_SELF="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+readonly _TRITON_SERVE_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly _TRITON_SERVE_PREFLIGHT_MARKER_VAR="_TRITON_SERVE_PREFLIGHT_DONE"
 
-# --- Error trap ---
+# shellcheck source=_lib.sh
+source "$_TRITON_SERVE_SCRIPT_DIR/_lib.sh"
+
+declare -a _TRITON_SERVE_PREFLIGHT_CMD=()
+declare -a _TRITON_EFFECTIVE_PORT_SPECS=()
+declare -a _TRITON_EFFECTIVE_PORT_VALUES=()
 
 _on_err() {
   local ec=$?
@@ -44,24 +62,498 @@ _on_err() {
 }
 trap '_on_err "$LINENO" "$BASH_COMMAND"' ERR
 
-# --- Help ---
-
 _print_help() {
-  cat <<'EOF'
+  cat <<'EOH'
 Usage: triton-serve [--print-cmd] [--dry-run] [--] [extra args...]
 
 Script flags:
   --print-cmd   Print the final argv to stderr before exec
-  --dry-run     Print the final argv and exit 0 (do not exec)
+  --dry-run     Validate and print the final argv; do not start the service
   -h, --help    Show help
 
-When TRITON_OPENAI_FRONTEND=true, execs python3 main.py (OpenAI-compatible
-frontend) instead of tritonserver. Extra args pass through to either command.
-EOF
+Behavior:
+  - The launcher resolves and loads the model env file before preflight.
+  - For standard Triton mode with all three listeners enabled, it can delegate to
+    triton-preflight for full reclaim / GPU checks.
+  - Otherwise it runs an exact bind preflight against only the listeners the final
+    service is expected to bind.
+  - In OpenAI frontend mode, the script execs python3 main.py instead of tritonserver.
+  - Extra args pass through to the final command unchanged.
+EOH
 }
 
-# --- Script flags ---
+_trim_ascii_ws() {
+  local s="${1-}"
+  s="${s#"${s%%[![:space:]]*}"}"
+  s="${s%"${s##*[![:space:]]}"}"
+  printf '%s' "$s"
+}
 
+_require_port_range() {
+  local name="${1-}"
+  lib::_require_identifier "$name"
+  lib::require_pos_int "$name"
+  local val="${!name}"
+  (( val >= 1 && val <= 65535 )) || lib::die "$name must be in range 1..65535, got: $val"
+}
+
+_validate_host() {
+  local host="${1-}"
+  python3 - "$host" <<'PY'
+import ipaddress
+import socket
+import sys
+
+host = sys.argv[1]
+if not host:
+    raise SystemExit(1)
+
+try:
+    ipaddress.ip_address(host)
+except ValueError:
+    try:
+        socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)
+    except socket.gaierror:
+        raise SystemExit(1)
+PY
+}
+
+_validate_distinct_port_specs() {
+  local -A seen=()
+  local spec name val
+  for spec in "$@"; do
+    name="${spec%%:*}"
+    val="${spec#*:}"
+    if [[ -n "${seen[$val]:-}" ]]; then
+      lib::die "Ports must be distinct across enabled listeners; $name and ${seen[$val]} both use $val"
+    fi
+    seen[$val]="$name"
+  done
+}
+
+_pick_ready_host() {
+  local host="${1-}"
+  case "$host" in
+    ''|0.0.0.0) printf '127.0.0.1' ;;
+    '::') printf '::1' ;;
+    *) printf '%s' "$host" ;;
+  esac
+}
+
+_build_ready_url() {
+  local host="${1-}" mode="${2-}"
+  local ready_host
+  ready_host="$(_pick_ready_host "$host")"
+
+  if [[ -n "${TRITON_SERVE_READY_URL:-}" ]]; then
+    printf '%s' "$TRITON_SERVE_READY_URL"
+    return 0
+  fi
+
+  local ready_host_fmt="$ready_host"
+  if [[ "$ready_host_fmt" == *:* && "$ready_host_fmt" != \[*\] ]]; then
+    ready_host_fmt="[$ready_host_fmt]"
+  fi
+
+  if [[ "$mode" == "openai" ]]; then
+    printf 'http://%s:%s/v1/models' "$ready_host_fmt" "$TRITON_OPENAI_PORT"
+    return 0
+  fi
+
+  if lib::is_truthy "$TRITON_ALLOW_HTTP"; then
+    printf 'http://%s:%s/v2/health/ready' "$ready_host_fmt" "$TRITON_HTTP_PORT"
+    return 0
+  fi
+
+  return 1
+}
+
+_resolve_preflight_cmd() {
+  local candidate="${TRITON_SERVE_PREFLIGHT_BIN:-}"
+  _TRITON_SERVE_PREFLIGHT_CMD=()
+
+  if [[ -n "$candidate" ]]; then
+    if [[ -x "$candidate" ]]; then
+      _TRITON_SERVE_PREFLIGHT_CMD=("$candidate")
+      return 0
+    fi
+    if [[ -r "$candidate" ]]; then
+      _TRITON_SERVE_PREFLIGHT_CMD=(bash "$candidate")
+      return 0
+    fi
+    lib::die "TRITON_SERVE_PREFLIGHT_BIN is neither executable nor readable: $candidate"
+  fi
+
+  candidate="$_TRITON_SERVE_SCRIPT_DIR/triton-preflight"
+  if [[ -x "$candidate" ]]; then
+    _TRITON_SERVE_PREFLIGHT_CMD=("$candidate")
+    return 0
+  fi
+  if [[ -r "$candidate" ]]; then
+    _TRITON_SERVE_PREFLIGHT_CMD=(bash "$candidate")
+    return 0
+  fi
+
+  candidate="$(command -v triton-preflight 2>/dev/null || true)"
+  if [[ -n "$candidate" && -x "$candidate" ]]; then
+    _TRITON_SERVE_PREFLIGHT_CMD=("$candidate")
+    return 0
+  fi
+
+  return 1
+}
+
+_resolve_model_env_file() {
+  local legacy_env_file=""
+  local model_id=""
+  local slug=""
+  local h12=""
+
+  if [[ -n "${TRITON_MODEL_ENV_FILE:-}" ]]; then
+    printf '%s\n' "$TRITON_MODEL_ENV_FILE"
+    return 0
+  fi
+
+  lib::require_var FLOX_ENV_CACHE
+  [[ -d "$FLOX_ENV_CACHE" ]] || lib::die "FLOX_ENV_CACHE is not a directory: $FLOX_ENV_CACHE"
+
+  model_id="${TRITON_MODEL_ID:-}"
+  if [[ -z "$model_id" ]]; then
+    if [[ -n "${TRITON_MODEL_ORG:-}" && -n "${TRITON_MODEL:-}" ]]; then
+      model_id="$TRITON_MODEL_ORG/$TRITON_MODEL"
+    elif [[ -n "${TRITON_MODEL:-}" ]]; then
+      model_id="$TRITON_MODEL"
+    else
+      lib::die "Cannot derive env file path: set TRITON_MODEL_ENV_FILE, or set TRITON_MODEL + FLOX_ENV_CACHE"
+    fi
+  fi
+
+  slug="$(lib::slugify "$model_id")"
+  legacy_env_file="$FLOX_ENV_CACHE/triton-model.${slug}.env"
+
+  if h12="$(lib::sha256_12 "$model_id")"; then
+    TRITON_MODEL_ENV_FILE="$FLOX_ENV_CACHE/triton-model.${slug}.${h12}.env"
+  else
+    TRITON_MODEL_ENV_FILE="$legacy_env_file"
+  fi
+
+  if [[ ! -f "$TRITON_MODEL_ENV_FILE" && -f "$legacy_env_file" ]]; then
+    TRITON_MODEL_ENV_FILE="$legacy_env_file"
+  fi
+
+  if [[ ! -f "$TRITON_MODEL_ENV_FILE" ]]; then
+    lib::err "Model env file not found: $TRITON_MODEL_ENV_FILE"
+    if [[ "$legacy_env_file" != "$TRITON_MODEL_ENV_FILE" ]]; then
+      lib::err "Also tried legacy path: $legacy_env_file"
+    fi
+    lib::die "Run triton-resolve-model first (or set TRITON_MODEL_ENV_FILE)."
+  fi
+
+  printf '%s\n' "$TRITON_MODEL_ENV_FILE"
+}
+
+_load_model_env() {
+  TRITON_MODEL_ENV_FILE="$(_resolve_model_env_file)"
+  [[ -f "$TRITON_MODEL_ENV_FILE" ]] || lib::die "Model env file not found: $TRITON_MODEL_ENV_FILE"
+  [[ -r "$TRITON_MODEL_ENV_FILE" ]] || lib::die "Model env file not readable: $TRITON_MODEL_ENV_FILE"
+
+  if lib::is_truthy "$TRITON_ENV_FILE_TRUSTED"; then
+    lib::load_env_trusted "$TRITON_MODEL_ENV_FILE"
+  else
+    lib::load_env_safe "$TRITON_MODEL_ENV_FILE"
+  fi
+}
+
+_collect_effective_ports() {
+  _TRITON_EFFECTIVE_PORT_SPECS=()
+  _TRITON_EFFECTIVE_PORT_VALUES=()
+
+  if lib::is_truthy "$TRITON_OPENAI_FRONTEND"; then
+    _TRITON_EFFECTIVE_PORT_SPECS+=("TRITON_OPENAI_PORT:$TRITON_OPENAI_PORT")
+    _TRITON_EFFECTIVE_PORT_VALUES+=("$TRITON_OPENAI_PORT")
+    if lib::is_truthy "$TRITON_ALLOW_HTTP" || lib::is_truthy "$TRITON_ALLOW_GRPC"; then
+      _TRITON_EFFECTIVE_PORT_SPECS+=(
+        "TRITON_HTTP_PORT:$TRITON_HTTP_PORT"
+        "TRITON_GRPC_PORT:$TRITON_GRPC_PORT"
+      )
+      _TRITON_EFFECTIVE_PORT_VALUES+=("$TRITON_HTTP_PORT" "$TRITON_GRPC_PORT")
+    fi
+    return 0
+  fi
+
+  if lib::is_truthy "$TRITON_ALLOW_HTTP"; then
+    _TRITON_EFFECTIVE_PORT_SPECS+=("TRITON_HTTP_PORT:$TRITON_HTTP_PORT")
+    _TRITON_EFFECTIVE_PORT_VALUES+=("$TRITON_HTTP_PORT")
+  fi
+  if lib::is_truthy "$TRITON_ALLOW_GRPC"; then
+    _TRITON_EFFECTIVE_PORT_SPECS+=("TRITON_GRPC_PORT:$TRITON_GRPC_PORT")
+    _TRITON_EFFECTIVE_PORT_VALUES+=("$TRITON_GRPC_PORT")
+  fi
+  if lib::is_truthy "$TRITON_ALLOW_METRICS"; then
+    _TRITON_EFFECTIVE_PORT_SPECS+=("TRITON_METRICS_PORT:$TRITON_METRICS_PORT")
+    _TRITON_EFFECTIVE_PORT_VALUES+=("$TRITON_METRICS_PORT")
+  fi
+}
+
+_effective_ports_csv() {
+  local out=""
+  local p
+  for p in "${_TRITON_EFFECTIVE_PORT_VALUES[@]}"; do
+    if [[ -n "$out" ]]; then
+      out+="," 
+    fi
+    out+="$p"
+  done
+  printf '%s' "$out"
+}
+
+_can_delegate_full_external_preflight() {
+  if lib::is_truthy "$TRITON_OPENAI_FRONTEND"; then
+    return 1
+  fi
+  lib::is_truthy "$TRITON_ALLOW_HTTP" || return 1
+  lib::is_truthy "$TRITON_ALLOW_GRPC" || return 1
+  lib::is_truthy "$TRITON_ALLOW_METRICS" || return 1
+  return 0
+}
+
+_run_exact_bind_preflight() {
+  local host="${1-}"
+  shift || true
+  (( $# > 0 )) || return 0
+
+  local err_file
+  local probe_rc=0
+  local msg=""
+  err_file="$(mktemp)"
+  if python3 - "$host" "$@" 2>"$err_file" <<'PY'
+import socket
+import sys
+
+host = sys.argv[1]
+ports = [int(p) for p in sys.argv[2:]]
+blocked = []
+held = []
+
+for port in ports:
+    ok = False
+    last_error = None
+    infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM, flags=getattr(socket, 'AI_PASSIVE', 0))
+    seen = set()
+    for family, socktype, proto, _canon, sockaddr in infos:
+        key = (family, proto, sockaddr)
+        if key in seen:
+            continue
+        seen.add(key)
+        sock = socket.socket(family, socktype, proto)
+        try:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            sock.bind(sockaddr)
+            ok = True
+            held.append(sock)
+            break
+        except OSError as exc:
+            last_error = exc
+            sock.close()
+    if not ok:
+        blocked.append(f"{port} ({last_error})")
+
+if blocked:
+    sys.stderr.write("Exact preflight failed; target listener ports are unavailable: " + ", ".join(blocked) + "\n")
+    raise SystemExit(2)
+PY
+  then
+    probe_rc=0
+  else
+    probe_rc=$?
+  fi
+
+  if (( probe_rc != 0 )); then
+    msg="$(tr '\n' ' ' <"$err_file" 2>/dev/null | sed 's/[[:space:]]\+/ /g; s/^ //; s/ $//')"
+    rm -f "$err_file" || true
+    lib::die "${msg:-Exact preflight failed}"
+  fi
+  rm -f "$err_file" || true
+}
+
+_run_preflight_if_needed() {
+  if ! lib::is_truthy "$TRITON_SERVE_RUN_PREFLIGHT"; then
+    return 0
+  fi
+  if lib::is_truthy "${!_TRITON_SERVE_PREFLIGHT_MARKER_VAR:-false}"; then
+    return 0
+  fi
+
+  if _can_delegate_full_external_preflight; then
+    if _resolve_preflight_cmd; then
+      if (( _DRY_RUN )); then
+        lib::log "Running triton-preflight in check-only mode before dry-run"
+        env TRITON_CHECK_ONLY=1 "${_TRITON_SERVE_PREFLIGHT_CMD[@]}"
+      else
+        lib::log "Running triton-preflight before launch"
+        exec env \
+          "$_TRITON_SERVE_PREFLIGHT_MARKER_VAR"=1 \
+          "${_TRITON_SERVE_PREFLIGHT_CMD[@]}" \
+          -- \
+          "$_TRITON_SERVE_SELF" \
+          "${_TRITON_SERVE_ORIGINAL_ARGV[@]}"
+      fi
+      return 0
+    fi
+
+    lib::warn "Full external preflight requested but triton-preflight was not found; falling back to exact bind preflight only."
+  else
+    lib::log "Using exact bind preflight because the effective listener set differs from triton-preflight's fixed port model."
+  fi
+
+  _run_exact_bind_preflight "$TRITON_HOST" "${_TRITON_EFFECTIVE_PORT_VALUES[@]}"
+}
+
+_log_effective_config() {
+  local mode="${1-}"
+  local effective_env_file="${TRITON_MODEL_ENV_FILE:-<unset>}"
+  local ports_csv=""
+  ports_csv="$(_effective_ports_csv)"
+  [[ -n "$ports_csv" ]] || ports_csv="<none>"
+
+  lib::log "Launch mode: $mode"
+  lib::log "Model repository: $TRITON_MODEL_REPOSITORY"
+  lib::log "Resolved model path: $_TRITON_RESOLVED_PATH"
+  lib::log "Model env file: $effective_env_file"
+  lib::log "Bind host: $TRITON_HOST"
+  lib::log "Effective listener ports: $ports_csv"
+  lib::log "Protocol flags: http=$TRITON_ALLOW_HTTP grpc=$TRITON_ALLOW_GRPC metrics=$TRITON_ALLOW_METRICS strict_readiness=$TRITON_STRICT_READINESS"
+  if [[ "$mode" == "openai" ]]; then
+    lib::log "OpenAI frontend port: $TRITON_OPENAI_PORT"
+  else
+    lib::log "Model control mode: $TRITON_MODEL_CONTROL_MODE"
+  fi
+  lib::log "Verbose log level: $TRITON_LOG_VERBOSE"
+  lib::log "Auto-preflight: $TRITON_SERVE_RUN_PREFLIGHT"
+  lib::log "Wait for ready: $TRITON_SERVE_WAIT_FOR_READY"
+}
+
+_TRITON_SERVE_READY_CHILD_RC=0
+
+_wait_for_ready_and_foreground() {
+  local child_pid="${1-}"
+  local ready_url="${2-}"
+  local timeout_s="${3-}"
+  local interval_s="${4-}"
+
+  local _forwarding=0
+  _forward_signal() {
+    local sig="${1-}"
+    if (( _forwarding == 0 )); then
+      _forwarding=1
+      kill "-$sig" "$child_pid" 2>/dev/null || kill -"$sig" "$child_pid" 2>/dev/null || true
+    fi
+  }
+  trap '_forward_signal TERM' TERM
+  trap '_forward_signal INT' INT
+  trap '_forward_signal HUP' HUP
+  trap '_forward_signal QUIT' QUIT
+
+  if [[ -n "$ready_url" ]]; then
+    lib::log "Waiting for readiness: $ready_url (timeout=${timeout_s}s interval=${interval_s}s)"
+  else
+    lib::log "Waiting for process liveness only (timeout=${timeout_s}s interval=${interval_s}s)"
+  fi
+
+  local probe_rc=0
+  if python3 - "$child_pid" "$ready_url" "$timeout_s" "$interval_s" <<'PY'
+import os
+import sys
+import time
+import urllib.error
+import urllib.request
+
+pid = int(sys.argv[1])
+ready_url = sys.argv[2]
+timeout_s = float(sys.argv[3])
+interval_s = float(sys.argv[4])
+deadline = time.monotonic() + timeout_s
+
+
+def pid_alive(p: int) -> bool:
+    try:
+        os.kill(p, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
+
+def probe(url: str) -> bool:
+    if not url:
+        return True
+    req = urllib.request.Request(url, method="GET")
+    try:
+        with urllib.request.urlopen(req, timeout=min(2.0, interval_s + 0.5)) as resp:
+            return 200 <= getattr(resp, "status", 500) < 300
+    except urllib.error.HTTPError as exc:
+        return 200 <= exc.code < 300
+    except Exception:
+        return False
+
+
+while True:
+    if not pid_alive(pid):
+        raise SystemExit(2)
+    if probe(ready_url):
+        raise SystemExit(0)
+    if time.monotonic() >= deadline:
+        raise SystemExit(1)
+    time.sleep(interval_s)
+PY
+  then
+    probe_rc=0
+  else
+    probe_rc=$?
+  fi
+
+  case "$probe_rc" in
+    0)
+      lib::log "Service reported ready."
+      ;;
+    1)
+      kill TERM "$child_pid" 2>/dev/null || true
+      wait "$child_pid" 2>/dev/null || true
+      trap - TERM INT HUP QUIT
+      lib::die "Timed out waiting for service readiness after ${timeout_s}s"
+      ;;
+    2)
+      local child_rc=0
+      if wait "$child_pid"; then
+        child_rc=0
+      else
+        child_rc=$?
+      fi
+      trap - TERM INT HUP QUIT
+      _TRITON_SERVE_READY_CHILD_RC="$child_rc"
+      return 0
+      ;;
+    *)
+      kill TERM "$child_pid" 2>/dev/null || true
+      wait "$child_pid" 2>/dev/null || true
+      trap - TERM INT HUP QUIT
+      lib::die "Unexpected readiness probe failure (rc=$probe_rc)"
+      ;;
+  esac
+
+  local child_rc=0
+  if wait "$child_pid"; then
+    child_rc=0
+  else
+    child_rc=$?
+  fi
+  trap - TERM INT HUP QUIT
+  _TRITON_SERVE_READY_CHILD_RC="$child_rc"
+  return 0
+}
+
+readonly _TRITON_SERVE_ORIGINAL_ARGV=("$@")
 _PRINT_CMD=0
 _DRY_RUN=0
 _EXTRA_ARGS=()
@@ -75,8 +567,6 @@ while (($#)); do
     *)           _EXTRA_ARGS+=("$1"); shift ;;
   esac
 done
-
-# --- Defaults for optional env ---
 
 TRITON_HTTP_PORT="${TRITON_HTTP_PORT:-8000}"
 TRITON_GRPC_PORT="${TRITON_GRPC_PORT:-8001}"
@@ -96,90 +586,101 @@ TRITON_OPENAI_MAIN="${TRITON_OPENAI_MAIN:-}"
 TRITON_OPENAI_TOKENIZER="${TRITON_OPENAI_TOKENIZER:-}"
 TRITON_HOST="${TRITON_HOST:-0.0.0.0}"
 
-# --- Ensure tritonserver exists (not required in OpenAI frontend mode) ---
+TRITON_SERVE_RUN_PREFLIGHT="${TRITON_SERVE_RUN_PREFLIGHT:-true}"
+TRITON_SERVE_PREFLIGHT_BIN="${TRITON_SERVE_PREFLIGHT_BIN:-}"
+TRITON_SERVE_LOG_CONFIG="${TRITON_SERVE_LOG_CONFIG:-true}"
+TRITON_SERVE_WAIT_FOR_READY="${TRITON_SERVE_WAIT_FOR_READY:-false}"
+TRITON_SERVE_READY_TIMEOUT="${TRITON_SERVE_READY_TIMEOUT:-30}"
+TRITON_SERVE_READY_INTERVAL="${TRITON_SERVE_READY_INTERVAL:-0.5}"
+TRITON_SERVE_READY_URL="${TRITON_SERVE_READY_URL:-}"
 
-lib::require_bool TRITON_OPENAI_FRONTEND
-if ! lib::is_truthy "$TRITON_OPENAI_FRONTEND"; then
-  command -v tritonserver >/dev/null 2>&1 || lib::die "'tritonserver' not found in PATH"
+for _bvar in \
+  TRITON_ENV_FILE_TRUSTED \
+  TRITON_OPENAI_FRONTEND \
+  TRITON_STRICT_READINESS \
+  TRITON_ALLOW_HTTP \
+  TRITON_ALLOW_GRPC \
+  TRITON_ALLOW_METRICS \
+  TRITON_SERVE_RUN_PREFLIGHT \
+  TRITON_SERVE_LOG_CONFIG \
+  TRITON_SERVE_WAIT_FOR_READY
+ do
+  lib::require_bool "$_bvar"
+  lib::normalize_bool_var "$_bvar" false true
+done
+
+_load_model_env
+
+TRITON_HTTP_PORT="${TRITON_HTTP_PORT:-8000}"
+TRITON_GRPC_PORT="${TRITON_GRPC_PORT:-8001}"
+TRITON_METRICS_PORT="${TRITON_METRICS_PORT:-8002}"
+TRITON_MODEL_CONTROL_MODE="${TRITON_MODEL_CONTROL_MODE:-none}"
+TRITON_LOG_VERBOSE="${TRITON_LOG_VERBOSE:-0}"
+TRITON_STRICT_READINESS="${TRITON_STRICT_READINESS:-true}"
+TRITON_ALLOW_HTTP="${TRITON_ALLOW_HTTP:-true}"
+TRITON_ALLOW_GRPC="${TRITON_ALLOW_GRPC:-true}"
+TRITON_ALLOW_METRICS="${TRITON_ALLOW_METRICS:-true}"
+TRITON_BACKEND_CONFIG="${TRITON_BACKEND_CONFIG:-}"
+TRITON_OPENAI_FRONTEND="${TRITON_OPENAI_FRONTEND:-false}"
+TRITON_OPENAI_PORT="${TRITON_OPENAI_PORT:-9000}"
+TRITON_OPENAI_MAIN="${TRITON_OPENAI_MAIN:-}"
+TRITON_OPENAI_TOKENIZER="${TRITON_OPENAI_TOKENIZER:-}"
+TRITON_HOST="${TRITON_HOST:-0.0.0.0}"
+
+for _bvar in TRITON_OPENAI_FRONTEND TRITON_STRICT_READINESS TRITON_ALLOW_HTTP TRITON_ALLOW_GRPC TRITON_ALLOW_METRICS; do
+  lib::require_bool "$_bvar"
+  lib::normalize_bool_var "$_bvar" false true
+done
+
+for _pvar in TRITON_HTTP_PORT TRITON_GRPC_PORT TRITON_METRICS_PORT; do
+  _require_port_range "$_pvar"
+done
+if lib::is_truthy "$TRITON_OPENAI_FRONTEND"; then
+  _require_port_range TRITON_OPENAI_PORT
 fi
 
-# --- Resolve env file path ---
+_validate_host "$TRITON_HOST" || lib::die "TRITON_HOST is invalid or unresolvable: $TRITON_HOST"
 
-_LEGACY_ENV_FILE=""
-if [[ -z "${TRITON_MODEL_ENV_FILE:-}" ]]; then
-  lib::require_var FLOX_ENV_CACHE
-  [[ -d "$FLOX_ENV_CACHE" ]] || lib::die "FLOX_ENV_CACHE is not a directory: $FLOX_ENV_CACHE"
-
-  _model_id="${TRITON_MODEL_ID:-}"
-  if [[ -z "$_model_id" ]]; then
-    if [[ -n "${TRITON_MODEL_ORG:-}" && -n "${TRITON_MODEL:-}" ]]; then
-      _model_id="$TRITON_MODEL_ORG/$TRITON_MODEL"
-    elif [[ -n "${TRITON_MODEL:-}" ]]; then
-      _model_id="$TRITON_MODEL"
-    else
-      lib::die "Cannot derive env file path: set TRITON_MODEL_ENV_FILE, or TRITON_MODEL + FLOX_ENV_CACHE"
-    fi
-  fi
-
-  _slug="$(lib::slugify "$_model_id")"
-  _LEGACY_ENV_FILE="$FLOX_ENV_CACHE/triton-model.${_slug}.env"
-
-  if _h12="$(lib::sha256_12 "$_model_id")"; then
-    TRITON_MODEL_ENV_FILE="$FLOX_ENV_CACHE/triton-model.${_slug}.${_h12}.env"
-  else
-    TRITON_MODEL_ENV_FILE="$_LEGACY_ENV_FILE"
-  fi
-
-  # Fallback to legacy path
-  if [[ ! -f "$TRITON_MODEL_ENV_FILE" && -n "$_LEGACY_ENV_FILE" && -f "$_LEGACY_ENV_FILE" ]]; then
-    TRITON_MODEL_ENV_FILE="$_LEGACY_ENV_FILE"
-  fi
-fi
-
-if [[ ! -f "$TRITON_MODEL_ENV_FILE" ]]; then
-  lib::err "Model env file not found: $TRITON_MODEL_ENV_FILE"
-  if [[ -n "${_LEGACY_ENV_FILE:-}" && "$_LEGACY_ENV_FILE" != "$TRITON_MODEL_ENV_FILE" ]]; then
-    lib::err "Also tried legacy path: $_LEGACY_ENV_FILE"
-  fi
-  lib::die "Run triton-resolve-model first (or set TRITON_MODEL_ENV_FILE)."
-fi
-[[ -r "$TRITON_MODEL_ENV_FILE" ]] || lib::die "Model env file not readable: $TRITON_MODEL_ENV_FILE"
-
-# --- Load env file ---
-
-lib::require_bool TRITON_ENV_FILE_TRUSTED
-if lib::is_truthy "$TRITON_ENV_FILE_TRUSTED"; then
-  lib::load_env_trusted "$TRITON_MODEL_ENV_FILE"
-else
-  lib::load_env_safe "$TRITON_MODEL_ENV_FILE"
-fi
-
-[[ -n "${_TRITON_RESOLVED_PATH:-}" ]] || lib::die "Env file did not set _TRITON_RESOLVED_PATH: $TRITON_MODEL_ENV_FILE"
-
-# --- Validate ---
-
-lib::require_var TRITON_MODEL_REPOSITORY
-lib::require_pos_int TRITON_HTTP_PORT
-lib::require_pos_int TRITON_GRPC_PORT
-lib::require_pos_int TRITON_METRICS_PORT
 lib::is_int "$TRITON_LOG_VERBOSE" || lib::die "TRITON_LOG_VERBOSE must be an integer, got: $TRITON_LOG_VERBOSE"
+(( TRITON_LOG_VERBOSE >= 0 )) || lib::die "TRITON_LOG_VERBOSE must be >= 0, got: $TRITON_LOG_VERBOSE"
+
+lib::is_unsigned_decimal "$TRITON_SERVE_READY_TIMEOUT" || lib::die "TRITON_SERVE_READY_TIMEOUT must be an unsigned decimal, got: $TRITON_SERVE_READY_TIMEOUT"
+lib::is_unsigned_decimal "$TRITON_SERVE_READY_INTERVAL" || lib::die "TRITON_SERVE_READY_INTERVAL must be an unsigned decimal, got: $TRITON_SERVE_READY_INTERVAL"
+if python3 - "$TRITON_SERVE_READY_TIMEOUT" "$TRITON_SERVE_READY_INTERVAL" <<'PY'
+import sys
+
+timeout_s = float(sys.argv[1])
+interval_s = float(sys.argv[2])
+if timeout_s <= 0 or interval_s <= 0:
+    raise SystemExit(1)
+PY
+then
+  :
+else
+  lib::die "TRITON_SERVE_READY_TIMEOUT and TRITON_SERVE_READY_INTERVAL must be > 0"
+fi
 
 case "$TRITON_MODEL_CONTROL_MODE" in
   none|explicit|poll) ;;
   *) lib::die "TRITON_MODEL_CONTROL_MODE must be none/explicit/poll, got: $TRITON_MODEL_CONTROL_MODE" ;;
 esac
 
-for _bvar in TRITON_STRICT_READINESS TRITON_ALLOW_HTTP TRITON_ALLOW_GRPC TRITON_ALLOW_METRICS; do
-  lib::require_bool "$_bvar"
-done
-
+[[ -n "${_TRITON_RESOLVED_PATH:-}" ]] || lib::die "Env file did not set _TRITON_RESOLVED_PATH: $TRITON_MODEL_ENV_FILE"
+lib::require_var TRITON_MODEL_REPOSITORY
 [[ -d "$TRITON_MODEL_REPOSITORY" ]] || lib::die "Model repository does not exist: $TRITON_MODEL_REPOSITORY"
 [[ -d "$_TRITON_RESOLVED_PATH" ]] || lib::die "Resolved model path does not exist: $_TRITON_RESOLVED_PATH"
 
-if lib::is_truthy "$TRITON_OPENAI_FRONTEND"; then
-  lib::require_pos_int TRITON_OPENAI_PORT
+_collect_effective_ports
+_validate_distinct_port_specs "${_TRITON_EFFECTIVE_PORT_SPECS[@]}"
 
-  # Auto-discover main.py
+if (( ${#_TRITON_EFFECTIVE_PORT_VALUES[@]} == 0 )); then
+  lib::die "No effective listener ports remain enabled for the selected launch mode"
+fi
+
+_run_preflight_if_needed
+
+if lib::is_truthy "$TRITON_OPENAI_FRONTEND"; then
+  command -v python3 >/dev/null 2>&1 || lib::die "'python3' not found in PATH"
   if [[ -z "$TRITON_OPENAI_MAIN" ]]; then
     if [[ -f "/opt/tritonserver/python/openai/main.py" ]]; then
       TRITON_OPENAI_MAIN="/opt/tritonserver/python/openai/main.py"
@@ -193,12 +694,12 @@ if lib::is_truthy "$TRITON_OPENAI_FRONTEND"; then
     [[ -n "$TRITON_OPENAI_MAIN" ]] || lib::die "OpenAI frontend main.py not found. Set TRITON_OPENAI_MAIN explicitly."
   fi
   [[ -f "$TRITON_OPENAI_MAIN" ]] || lib::die "OpenAI frontend main.py not found at: $TRITON_OPENAI_MAIN"
+else
+  command -v tritonserver >/dev/null 2>&1 || lib::die "'tritonserver' not found in PATH"
 fi
 
-# --- Build command ---
-
 if lib::is_truthy "$TRITON_OPENAI_FRONTEND"; then
-  # --- OpenAI frontend mode ---
+  _launch_mode="openai"
   cmd=(
     python3 "$TRITON_OPENAI_MAIN"
     --model-repository="$TRITON_MODEL_REPOSITORY"
@@ -206,25 +707,21 @@ if lib::is_truthy "$TRITON_OPENAI_FRONTEND"; then
     --host="$TRITON_HOST"
   )
 
-  # Tokenizer (required for chat completions)
   if [[ -n "$TRITON_OPENAI_TOKENIZER" ]]; then
     cmd+=(--tokenizer="$TRITON_OPENAI_TOKENIZER")
   fi
 
-  # Log verbosity
   if (( TRITON_LOG_VERBOSE > 0 )); then
     cmd+=(--tritonserver-log-verbose-level="$TRITON_LOG_VERBOSE")
   fi
 
-  # KServe frontends: enable when HTTP or gRPC is wanted
   if lib::is_truthy "$TRITON_ALLOW_HTTP" || lib::is_truthy "$TRITON_ALLOW_GRPC"; then
     cmd+=(--enable-kserve-frontends)
     cmd+=(--kserve-http-port="$TRITON_HTTP_PORT")
     cmd+=(--kserve-grpc-port="$TRITON_GRPC_PORT")
   fi
-
 else
-  # --- Standard tritonserver mode ---
+  _launch_mode="tritonserver"
   cmd=(
     tritonserver
     --model-repository="$TRITON_MODEL_REPOSITORY"
@@ -236,7 +733,6 @@ else
     --log-verbose="$TRITON_LOG_VERBOSE"
   )
 
-  # Protocol toggles
   if ! lib::is_truthy "$TRITON_ALLOW_HTTP"; then
     cmd+=(--allow-http=false)
   fi
@@ -247,23 +743,22 @@ else
     cmd+=(--allow-metrics=false)
   fi
 
-  # Backend configs: TRITON_BACKEND_CONFIG="backend:key=val,backend:key=val"
   if [[ -n "$TRITON_BACKEND_CONFIG" ]]; then
-    IFS=',' read -ra _bc_parts <<< "$TRITON_BACKEND_CONFIG"
+    IFS=',' read -r -a _bc_parts <<< "$TRITON_BACKEND_CONFIG"
     for _bc in "${_bc_parts[@]}"; do
-      _bc="${_bc#"${_bc%%[![:space:]]*}"}"
-      _bc="${_bc%"${_bc##*[![:space:]]}"}"
+      _bc="$(_trim_ascii_ws "$_bc")"
       [[ -n "$_bc" ]] && cmd+=(--backend-config="$_bc")
     done
   fi
 fi
 
-# Extra passthrough args
 if (( ${#_EXTRA_ARGS[@]} )); then
   cmd+=("${_EXTRA_ARGS[@]}")
 fi
 
-# --- Print / dry-run / exec ---
+if lib::is_truthy "$TRITON_SERVE_LOG_CONFIG"; then
+  _log_effective_config "$_launch_mode"
+fi
 
 if (( _PRINT_CMD || _DRY_RUN )); then
   printf 'CMD:' >&2
@@ -273,6 +768,14 @@ fi
 
 if (( _DRY_RUN )); then
   exit 0
+fi
+
+if lib::is_truthy "$TRITON_SERVE_WAIT_FOR_READY"; then
+  _ready_url="$(_build_ready_url "$TRITON_HOST" "$_launch_mode" || true)"
+  "${cmd[@]}" &
+  _child_pid=$!
+  _wait_for_ready_and_foreground "$_child_pid" "$_ready_url" "$TRITON_SERVE_READY_TIMEOUT" "$TRITON_SERVE_READY_INTERVAL"
+  exit "$_TRITON_SERVE_READY_CHILD_RC"
 fi
 
 exec "${cmd[@]}"
