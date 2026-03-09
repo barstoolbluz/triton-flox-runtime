@@ -6,8 +6,39 @@
       "bats": {
         "pkg-path": "bats"
       },
+      "numpy": {
+        "pkg-path": "flox-cuda/python3Packages.numpy",
+        "pkg-group": "numpy",
+        "systems": [
+          "aarch64-linux",
+          "x86_64-linux"
+        ]
+      },
       "shellcheck": {
         "pkg-path": "shellcheck"
+      },
+      "torch": {
+        "pkg-path": "flox-cuda/python3Packages.torch",
+        "pkg-group": "torch",
+        "systems": [
+          "aarch64-linux",
+          "x86_64-linux"
+        ]
+      },
+      "transformers": {
+        "pkg-path": "flox-cuda/python3Packages.transformers",
+        "pkg-group": "transformers",
+        "systems": [
+          "aarch64-linux",
+          "x86_64-linux"
+        ]
+      },
+      "triton-python-backend": {
+        "store-path": "/nix/store/yhk1sv3ycny5k27nyfimsa4pb9xdin9y-triton-python-backend-2.66.0",
+        "priority": 10
+      },
+      "triton-server": {
+        "store-path": "/nix/store/0fgkz60kl9pfl541p1k9pwvw4x1lhgbm-triton-server-2.66.0"
       }
     },
     "hook": {},
@@ -15,6 +46,118 @@
     "options": {}
   },
   "packages": [
+    {
+      "install_id": "triton-python-backend",
+      "store_path": "/nix/store/yhk1sv3ycny5k27nyfimsa4pb9xdin9y-triton-python-backend-2.66.0",
+      "system": "aarch64-darwin",
+      "priority": 10
+    },
+    {
+      "install_id": "triton-python-backend",
+      "store_path": "/nix/store/yhk1sv3ycny5k27nyfimsa4pb9xdin9y-triton-python-backend-2.66.0",
+      "system": "aarch64-linux",
+      "priority": 10
+    },
+    {
+      "install_id": "triton-python-backend",
+      "store_path": "/nix/store/yhk1sv3ycny5k27nyfimsa4pb9xdin9y-triton-python-backend-2.66.0",
+      "system": "x86_64-darwin",
+      "priority": 10
+    },
+    {
+      "install_id": "triton-python-backend",
+      "store_path": "/nix/store/yhk1sv3ycny5k27nyfimsa4pb9xdin9y-triton-python-backend-2.66.0",
+      "system": "x86_64-linux",
+      "priority": 10
+    },
+    {
+      "install_id": "triton-server",
+      "store_path": "/nix/store/0fgkz60kl9pfl541p1k9pwvw4x1lhgbm-triton-server-2.66.0",
+      "system": "aarch64-darwin",
+      "priority": 5
+    },
+    {
+      "install_id": "triton-server",
+      "store_path": "/nix/store/0fgkz60kl9pfl541p1k9pwvw4x1lhgbm-triton-server-2.66.0",
+      "system": "aarch64-linux",
+      "priority": 5
+    },
+    {
+      "install_id": "triton-server",
+      "store_path": "/nix/store/0fgkz60kl9pfl541p1k9pwvw4x1lhgbm-triton-server-2.66.0",
+      "system": "x86_64-darwin",
+      "priority": 5
+    },
+    {
+      "install_id": "triton-server",
+      "store_path": "/nix/store/0fgkz60kl9pfl541p1k9pwvw4x1lhgbm-triton-server-2.66.0",
+      "system": "x86_64-linux",
+      "priority": 5
+    },
+    {
+      "attr_path": "python3Packages.numpy",
+      "broken": false,
+      "derivation": "/nix/store/bmvsr86dxr10flc0akzsyyq6rwkii9xs-python3.13-numpy-2.4.2.drv",
+      "description": "Scientific tools for Python",
+      "install_id": "numpy",
+      "license": "BSD-3-Clause",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=2fc6539b481e1d2569f25f8799236694180c0993",
+      "name": "python3.13-numpy-2.4.2",
+      "pname": "numpy",
+      "rev": "2fc6539b481e1d2569f25f8799236694180c0993",
+      "rev_count": 953160,
+      "rev_date": "2026-02-23T12:05:20Z",
+      "scrape_date": "2026-03-09T21:10:25.454826818Z",
+      "stabilities": [
+        "unstable",
+        "staging",
+        "stable"
+      ],
+      "unfree": false,
+      "version": "python3.13-numpy-2.4.2",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "dist": "/nix/store/1w3yj61nqr3a3j72z24f20rv84018axj-python3.13-numpy-2.4.2-dist",
+        "out": "/nix/store/lpwgw3c0jbq16bgazhkpniy0z7py3x3q-python3.13-numpy-2.4.2"
+      },
+      "system": "aarch64-linux",
+      "group": "numpy",
+      "priority": 5
+    },
+    {
+      "attr_path": "python3Packages.numpy",
+      "broken": false,
+      "derivation": "/nix/store/gq4w1x4df0r5lgvn5wwday7mblcvqssr-python3.13-numpy-2.4.2.drv",
+      "description": "Scientific tools for Python",
+      "install_id": "numpy",
+      "license": "BSD-3-Clause",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=2fc6539b481e1d2569f25f8799236694180c0993",
+      "name": "python3.13-numpy-2.4.2",
+      "pname": "numpy",
+      "rev": "2fc6539b481e1d2569f25f8799236694180c0993",
+      "rev_count": 953160,
+      "rev_date": "2026-02-23T12:05:20Z",
+      "scrape_date": "2026-03-09T21:10:25.454831425Z",
+      "stabilities": [
+        "unstable",
+        "staging",
+        "stable"
+      ],
+      "unfree": false,
+      "version": "python3.13-numpy-2.4.2",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "dist": "/nix/store/k7jj8yzxzizzd3859q7av3syk9ial5px-python3.13-numpy-2.4.2-dist",
+        "out": "/nix/store/3zydgxpc2gixvxwy77by5v1w8wvvmi9j-python3.13-numpy-2.4.2"
+      },
+      "system": "x86_64-linux",
+      "group": "numpy",
+      "priority": 5
+    },
     {
       "attr_path": "bats",
       "broken": false,
@@ -265,6 +408,136 @@
       },
       "system": "x86_64-linux",
       "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "python3Packages.torch",
+      "broken": false,
+      "derivation": "/nix/store/nwm0rchw4093kvqlms11y1aairir5764-python3.13-torch-2.10.0.drv",
+      "description": "PyTorch: Tensors and Dynamic neural networks in Python with strong GPU acceleration",
+      "install_id": "torch",
+      "license": "BSD-3-Clause",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=80bdc1e5ce51f56b19791b52b2901187931f5353",
+      "name": "python3.13-torch-2.10.0",
+      "pname": "torchWithCuda",
+      "rev": "80bdc1e5ce51f56b19791b52b2901187931f5353",
+      "rev_count": 958232,
+      "rev_date": "2026-03-04T11:34:51Z",
+      "scrape_date": "2026-03-09T21:17:38.451933218Z",
+      "stabilities": [
+        "unstable",
+        "staging"
+      ],
+      "unfree": false,
+      "version": "python3.13-torch-2.10.0",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "cxxdev": "/nix/store/bx586ggq829y187fsplqz714rnc62vfp-python3.13-torch-2.10.0-cxxdev",
+        "dev": "/nix/store/zhdrxf05gvq2z9hf5sm3ljvfk83pk85z-python3.13-torch-2.10.0-dev",
+        "dist": "/nix/store/v8g8smg770x35hf741kxrqjx6rxkc1z8-python3.13-torch-2.10.0-dist",
+        "lib": "/nix/store/qhj37yv8rl6qsp4d9axrjajiffbzb0sg-python3.13-torch-2.10.0-lib",
+        "out": "/nix/store/fcca5sw5xzwhhszvn7nl0bjky6kvbr8j-python3.13-torch-2.10.0"
+      },
+      "system": "aarch64-linux",
+      "group": "torch",
+      "priority": 5
+    },
+    {
+      "attr_path": "python3Packages.torch",
+      "broken": false,
+      "derivation": "/nix/store/2kbx0idfiaq5dj6ds3nj8bv3fgf173vf-python3.13-torch-2.10.0.drv",
+      "description": "PyTorch: Tensors and Dynamic neural networks in Python with strong GPU acceleration",
+      "install_id": "torch",
+      "license": "BSD-3-Clause",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=80bdc1e5ce51f56b19791b52b2901187931f5353",
+      "name": "python3.13-torch-2.10.0",
+      "pname": "torchWithCuda",
+      "rev": "80bdc1e5ce51f56b19791b52b2901187931f5353",
+      "rev_count": 958232,
+      "rev_date": "2026-03-04T11:34:51Z",
+      "scrape_date": "2026-03-09T21:17:38.451936312Z",
+      "stabilities": [
+        "unstable",
+        "staging"
+      ],
+      "unfree": false,
+      "version": "python3.13-torch-2.10.0",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "cxxdev": "/nix/store/jr9vdkd936d8qb2r0mcpdi5f5ibhb0v6-python3.13-torch-2.10.0-cxxdev",
+        "dev": "/nix/store/gpjc38p1lb5jibib6mzz1hxrd60h212w-python3.13-torch-2.10.0-dev",
+        "dist": "/nix/store/zs3dvq0v52674zrc9nlgm0z3s2ysq4ab-python3.13-torch-2.10.0-dist",
+        "lib": "/nix/store/s5x8dmjajixh6ar9mlsw5y13qg9absyz-python3.13-torch-2.10.0-lib",
+        "out": "/nix/store/0l4jhb8g6ygwnhiivv8i14xnlj7y4lw2-python3.13-torch-2.10.0"
+      },
+      "system": "x86_64-linux",
+      "group": "torch",
+      "priority": 5
+    },
+    {
+      "attr_path": "python3Packages.transformers",
+      "broken": false,
+      "derivation": "/nix/store/ggswg30b7hn1whb8ml0cll9554v18g97-python3.13-transformers-5.2.0.drv",
+      "description": "Natural Language Processing for TensorFlow 2.0 and PyTorch",
+      "install_id": "transformers",
+      "license": "Apache-2.0",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=80bdc1e5ce51f56b19791b52b2901187931f5353",
+      "name": "python3.13-transformers-5.2.0",
+      "pname": "transformers",
+      "rev": "80bdc1e5ce51f56b19791b52b2901187931f5353",
+      "rev_count": 958232,
+      "rev_date": "2026-03-04T11:34:51Z",
+      "scrape_date": "2026-03-09T21:17:38.451938566Z",
+      "stabilities": [
+        "unstable",
+        "staging"
+      ],
+      "unfree": false,
+      "version": "5.2.0",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "dist": "/nix/store/hhnv3nkfjd2prk0131agr9i7pji8z8yp-python3.13-transformers-5.2.0-dist",
+        "out": "/nix/store/kp2wh6nvvylk3bygv0yw1d5hbzq7m10y-python3.13-transformers-5.2.0"
+      },
+      "system": "aarch64-linux",
+      "group": "transformers",
+      "priority": 5
+    },
+    {
+      "attr_path": "python3Packages.transformers",
+      "broken": false,
+      "derivation": "/nix/store/m1l8pp0zg734mk4rdcbpj0lx0l44m8dw-python3.13-transformers-5.2.0.drv",
+      "description": "Natural Language Processing for TensorFlow 2.0 and PyTorch",
+      "install_id": "transformers",
+      "license": "Apache-2.0",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=80bdc1e5ce51f56b19791b52b2901187931f5353",
+      "name": "python3.13-transformers-5.2.0",
+      "pname": "transformers",
+      "rev": "80bdc1e5ce51f56b19791b52b2901187931f5353",
+      "rev_count": 958232,
+      "rev_date": "2026-03-04T11:34:51Z",
+      "scrape_date": "2026-03-09T21:17:38.451938986Z",
+      "stabilities": [
+        "unstable",
+        "staging"
+      ],
+      "unfree": false,
+      "version": "5.2.0",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "dist": "/nix/store/wr1ms7c3272y3xy6hxcfm2vk2dinb55m-python3.13-transformers-5.2.0-dist",
+        "out": "/nix/store/dmrp5w2sjds96pxcwbj8csxv1c0l70sq-python3.13-transformers-5.2.0"
+      },
+      "system": "x86_64-linux",
+      "group": "transformers",
       "priority": 5
     }
   ]

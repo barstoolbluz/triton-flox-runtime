@@ -81,3 +81,118 @@ STUB
   [[ "$output" == *"tritonserver"* ]]
   [[ "$output" == *"not found"* ]]
 }
+
+# --- Path derivation tests ---
+
+@test "path derivation: finds env file via FLOX_ENV_CACHE" {
+  setup_serve_env_no_explicit_env_file
+  make_mock_tritonserver
+  local env_file
+  env_file="$(make_resolve_model_env_file "$TEST_TMPDIR/cache" "$TEST_TMPDIR/model-repo" "my-model")"
+  export FLOX_ENV_CACHE="$TEST_TMPDIR/cache"
+  unset TRITON_MODEL_STATE_DIR
+  run "$SCRIPTS_DIR/triton-serve" --dry-run
+  [ "$status" -eq 0 ]
+}
+
+@test "path derivation: finds env file via TRITON_MODEL_STATE_DIR" {
+  setup_serve_env_no_explicit_env_file
+  make_mock_tritonserver
+  local state_dir="$TEST_TMPDIR/custom-state"
+  local env_file
+  env_file="$(make_resolve_model_env_file "$state_dir" "$TEST_TMPDIR/model-repo" "my-model")"
+  export TRITON_MODEL_STATE_DIR="$state_dir"
+  unset FLOX_ENV_CACHE
+  run "$SCRIPTS_DIR/triton-serve" --dry-run
+  [ "$status" -eq 0 ]
+}
+
+@test "path derivation: falls back to repo/.triton-resolve-state" {
+  setup_serve_env_no_explicit_env_file
+  make_mock_tritonserver
+  local env_file
+  env_file="$(make_resolve_model_env_file "$TEST_TMPDIR/model-repo/.triton-resolve-state" "$TEST_TMPDIR/model-repo" "my-model")"
+  unset FLOX_ENV_CACHE
+  unset TRITON_MODEL_STATE_DIR
+  run "$SCRIPTS_DIR/triton-serve" --dry-run
+  [ "$status" -eq 0 ]
+}
+
+@test "path derivation: TRITON_MODEL_STATE_DIR takes priority over FLOX_ENV_CACHE" {
+  setup_serve_env_no_explicit_env_file
+  make_mock_tritonserver
+  local state_dir="$TEST_TMPDIR/priority-state"
+  local env_file
+  env_file="$(make_resolve_model_env_file "$state_dir" "$TEST_TMPDIR/model-repo" "my-model")"
+  export TRITON_MODEL_STATE_DIR="$state_dir"
+  # Also set FLOX_ENV_CACHE to a different dir with NO env file — if priority is wrong, it will fail
+  export FLOX_ENV_CACHE="$TEST_TMPDIR/wrong-cache"
+  mkdir -p "$TEST_TMPDIR/wrong-cache"
+  run "$SCRIPTS_DIR/triton-serve" --dry-run
+  [ "$status" -eq 0 ]
+}
+
+@test "path derivation: TRITON_MODEL_ID uses slug from model_id but hash from repo/model" {
+  setup_serve_env_no_explicit_env_file
+  make_mock_tritonserver
+  export TRITON_MODEL_ID="custom-org/custom-id"
+  # Hash is still based on repo/model, but slug comes from TRITON_MODEL_ID
+  local env_file
+  env_file="$(make_resolve_model_env_file "$TEST_TMPDIR/cache" "$TEST_TMPDIR/model-repo" "my-model" "custom-org/custom-id")"
+  export FLOX_ENV_CACHE="$TEST_TMPDIR/cache"
+  unset TRITON_MODEL_STATE_DIR
+  run "$SCRIPTS_DIR/triton-serve" --dry-run
+  [ "$status" -eq 0 ]
+}
+
+@test "path derivation: TRITON_MODEL_ORG derives model_id as org/model" {
+  setup_serve_env_no_explicit_env_file
+  make_mock_tritonserver
+  export TRITON_MODEL_ORG="myorg"
+  # model_id becomes "myorg/my-model", hash is still repo/model
+  local env_file
+  env_file="$(make_resolve_model_env_file "$TEST_TMPDIR/cache" "$TEST_TMPDIR/model-repo" "my-model" "myorg/my-model")"
+  export FLOX_ENV_CACHE="$TEST_TMPDIR/cache"
+  unset TRITON_MODEL_STATE_DIR
+  run "$SCRIPTS_DIR/triton-serve" --dry-run
+  [ "$status" -eq 0 ]
+}
+
+@test "path derivation: fails when TRITON_MODEL unset" {
+  setup_serve_env_no_explicit_env_file
+  make_mock_tritonserver
+  unset TRITON_MODEL
+  export FLOX_ENV_CACHE="$TEST_TMPDIR/cache"
+  run "$SCRIPTS_DIR/triton-serve" --dry-run
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"TRITON_MODEL is required"* ]]
+}
+
+@test "path derivation: fails when state dir doesn't exist" {
+  setup_serve_env_no_explicit_env_file
+  make_mock_tritonserver
+  export TRITON_MODEL_STATE_DIR="$TEST_TMPDIR/nonexistent-state-dir"
+  unset FLOX_ENV_CACHE
+  run "$SCRIPTS_DIR/triton-serve" --dry-run
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"State directory does not exist"* ]]
+}
+
+@test "path derivation: legacy unhashed env file fallback" {
+  setup_serve_env_no_explicit_env_file
+  make_mock_tritonserver
+  local state_dir="$TEST_TMPDIR/legacy-state"
+  mkdir -p "$state_dir"
+  # Compute slug independently for the legacy (unhashed) filename
+  local slug
+  slug="$(printf '%s' "my-model" | tr -cs 'A-Za-z0-9._-' '-' | sed -e 's/^-*//' -e 's/-*$//')"
+  local legacy_path="$state_dir/triton-model.${slug}.env"
+  cat > "$legacy_path" <<EOF
+export _TRITON_RESOLVED_PATH='$TEST_TMPDIR/resolved'
+export TRITON_MODEL_REPOSITORY='$TEST_TMPDIR/model-repo'
+EOF
+  export TRITON_MODEL_STATE_DIR="$state_dir"
+  unset FLOX_ENV_CACHE
+  run "$SCRIPTS_DIR/triton-serve" --dry-run
+  [ "$status" -eq 0 ]
+}

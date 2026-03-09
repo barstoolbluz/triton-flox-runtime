@@ -7,7 +7,8 @@
 #   _TRITON_RESOLVED_PATH     From triton-resolve-model env file
 #
 # Optional env:
-#   TRITON_MODEL_ENV_FILE       Explicit env file path (otherwise derived from FLOX_ENV_CACHE)
+#   TRITON_MODEL_ENV_FILE       Explicit env file path (otherwise derived from state dir)
+#   TRITON_MODEL_STATE_DIR      Override state directory (fallback: FLOX_ENV_CACHE, then repo/.triton-resolve-state)
 #   TRITON_HTTP_PORT            HTTP port (default: 8000)
 #   TRITON_GRPC_PORT            gRPC port (default: 8001)
 #   TRITON_METRICS_PORT         Metrics port (default: 8002)
@@ -17,6 +18,7 @@
 #   TRITON_ALLOW_HTTP           Enable HTTP (default: true)
 #   TRITON_ALLOW_GRPC           Enable gRPC (default: true)
 #   TRITON_ALLOW_METRICS        Enable metrics (default: true)
+#   TRITON_BACKEND_DIR          Backend library directory (default: unset; uses tritonserver default)
 #   TRITON_BACKEND_CONFIG       Comma-separated backend configs (default: empty)
 #   TRITON_ENV_FILE_TRUSTED     Trust env file / direct source (default: false)
 #   TRITON_OPENAI_FRONTEND      Enable OpenAI-compatible frontend (default: false)
@@ -24,7 +26,7 @@
 #   TRITON_OPENAI_MAIN          Path to OpenAI frontend main.py (auto-discovered)
 #   TRITON_OPENAI_TOKENIZER     HF tokenizer for chat templates
 #   TRITON_HOST                 Bind address (default: 0.0.0.0)
-#   FLOX_ENV_CACHE              For env file path derivation
+#   FLOX_ENV_CACHE              Fallback state directory for env file path derivation
 #
 # Production-oriented launcher controls:
 #   TRITON_SERVE_RUN_PREFLIGHT  Run a preflight before launch (default: true)
@@ -204,48 +206,61 @@ _resolve_preflight_cmd() {
 }
 
 _resolve_model_env_file() {
-  local legacy_env_file=""
-  local model_id=""
-  local slug=""
-  local h12=""
-
+  # Short-circuit: explicit env file path
   if [[ -n "${TRITON_MODEL_ENV_FILE:-}" ]]; then
     printf '%s\n' "$TRITON_MODEL_ENV_FILE"
     return 0
   fi
 
-  lib::require_var FLOX_ENV_CACHE
-  [[ -d "$FLOX_ENV_CACHE" ]] || lib::die "FLOX_ENV_CACHE is not a directory: $FLOX_ENV_CACHE"
+  # Require TRITON_MODEL and TRITON_MODEL_REPOSITORY (both are :? required by resolve-model)
+  [[ -n "${TRITON_MODEL:-}" ]] \
+    || lib::die "Cannot derive env file path: TRITON_MODEL is required when TRITON_MODEL_ENV_FILE is not set"
+  [[ -n "${TRITON_MODEL_REPOSITORY:-}" ]] \
+    || lib::die "Cannot derive env file path: TRITON_MODEL_REPOSITORY is required when TRITON_MODEL_ENV_FILE is not set"
 
-  model_id="${TRITON_MODEL_ID:-}"
-  if [[ -z "$model_id" ]]; then
-    if [[ -n "${TRITON_MODEL_ORG:-}" && -n "${TRITON_MODEL:-}" ]]; then
-      model_id="$TRITON_MODEL_ORG/$TRITON_MODEL"
-    elif [[ -n "${TRITON_MODEL:-}" ]]; then
-      model_id="$TRITON_MODEL"
-    else
-      lib::die "Cannot derive env file path: set TRITON_MODEL_ENV_FILE, or set TRITON_MODEL + FLOX_ENV_CACHE"
-    fi
-  fi
-
-  slug="$(lib::slugify "$model_id")"
-  legacy_env_file="$FLOX_ENV_CACHE/triton-model.${slug}.env"
-
-  if h12="$(lib::sha256_12 "$model_id")"; then
-    TRITON_MODEL_ENV_FILE="$FLOX_ENV_CACHE/triton-model.${slug}.${h12}.env"
+  # Resolve state dir — same fallback chain as triton-resolve-model (lines 891-898),
+  # minus the dirname(TRITON_MODEL_ENV_FILE) branch (unreachable: we short-circuited above).
+  local state_dir=""
+  if [[ -n "${TRITON_MODEL_STATE_DIR:-}" ]]; then
+    state_dir="$TRITON_MODEL_STATE_DIR"
+  elif [[ -n "${FLOX_ENV_CACHE:-}" ]]; then
+    state_dir="$FLOX_ENV_CACHE"
   else
-    TRITON_MODEL_ENV_FILE="$legacy_env_file"
+    state_dir="$TRITON_MODEL_REPOSITORY/.triton-resolve-state"
+  fi
+  [[ -d "$state_dir" ]] \
+    || lib::die "State directory does not exist: $state_dir (run triton-resolve-model first)"
+
+  # Derive model_id — mirrors resolve-model lines 882-886
+  local model_id=""
+  if [[ -n "${TRITON_MODEL_ID:-}" ]]; then
+    model_id="$TRITON_MODEL_ID"
+  elif [[ -n "${TRITON_MODEL_ORG:-}" ]]; then
+    model_id="$TRITON_MODEL_ORG/$TRITON_MODEL"
+  else
+    model_id="$TRITON_MODEL"
   fi
 
-  if [[ ! -f "$TRITON_MODEL_ENV_FILE" && -f "$legacy_env_file" ]]; then
-    TRITON_MODEL_ENV_FILE="$legacy_env_file"
-  fi
+  # Compute slug + hash — hash input matches resolve-model line 889
+  local slug=""
+  slug="$(lib::slugify "$model_id")"
+  [[ -n "$slug" ]] || lib::die "Slugified model id is empty for: $model_id"
 
-  if [[ ! -f "$TRITON_MODEL_ENV_FILE" ]]; then
-    lib::err "Model env file not found: $TRITON_MODEL_ENV_FILE"
-    if [[ "$legacy_env_file" != "$TRITON_MODEL_ENV_FILE" ]]; then
-      lib::err "Also tried legacy path: $legacy_env_file"
-    fi
+  local h12=""
+  h12="$(lib::sha256_12 "$TRITON_MODEL_REPOSITORY/$TRITON_MODEL")"
+
+  # Primary path (hashed)
+  local primary_path="$state_dir/triton-model.${slug}.${h12}.env"
+  # Legacy fallback (unhashed, for backward compat)
+  local legacy_path="$state_dir/triton-model.${slug}.env"
+
+  if [[ -f "$primary_path" ]]; then
+    TRITON_MODEL_ENV_FILE="$primary_path"
+  elif [[ -f "$legacy_path" ]]; then
+    TRITON_MODEL_ENV_FILE="$legacy_path"
+  else
+    lib::err "Model env file not found: $primary_path"
+    lib::err "Also tried legacy path: $legacy_path"
     lib::die "Run triton-resolve-model first (or set TRITON_MODEL_ENV_FILE)."
   fi
 
@@ -428,6 +443,9 @@ _log_effective_config() {
   else
     lib::log "Model control mode: $TRITON_MODEL_CONTROL_MODE"
   fi
+  if [[ -n "$TRITON_BACKEND_DIR" ]]; then
+    lib::log "Backend directory: $TRITON_BACKEND_DIR"
+  fi
   lib::log "Verbose log level: $TRITON_LOG_VERBOSE"
   lib::log "Auto-preflight: $TRITON_SERVE_RUN_PREFLIGHT"
   lib::log "Wait for ready: $TRITON_SERVE_WAIT_FOR_READY"
@@ -518,7 +536,7 @@ PY
       lib::log "Service reported ready."
       ;;
     1)
-      kill TERM "$child_pid" 2>/dev/null || true
+      kill -TERM "$child_pid" 2>/dev/null || true
       wait "$child_pid" 2>/dev/null || true
       trap - TERM INT HUP QUIT
       lib::die "Timed out waiting for service readiness after ${timeout_s}s"
@@ -535,7 +553,7 @@ PY
       return 0
       ;;
     *)
-      kill TERM "$child_pid" 2>/dev/null || true
+      kill -TERM "$child_pid" 2>/dev/null || true
       wait "$child_pid" 2>/dev/null || true
       trap - TERM INT HUP QUIT
       lib::die "Unexpected readiness probe failure (rc=$probe_rc)"
@@ -577,6 +595,7 @@ TRITON_STRICT_READINESS="${TRITON_STRICT_READINESS:-true}"
 TRITON_ALLOW_HTTP="${TRITON_ALLOW_HTTP:-true}"
 TRITON_ALLOW_GRPC="${TRITON_ALLOW_GRPC:-true}"
 TRITON_ALLOW_METRICS="${TRITON_ALLOW_METRICS:-true}"
+TRITON_BACKEND_DIR="${TRITON_BACKEND_DIR:-}"
 TRITON_BACKEND_CONFIG="${TRITON_BACKEND_CONFIG:-}"
 TRITON_ENV_FILE_TRUSTED="${TRITON_ENV_FILE_TRUSTED:-false}"
 
@@ -620,6 +639,7 @@ TRITON_STRICT_READINESS="${TRITON_STRICT_READINESS:-true}"
 TRITON_ALLOW_HTTP="${TRITON_ALLOW_HTTP:-true}"
 TRITON_ALLOW_GRPC="${TRITON_ALLOW_GRPC:-true}"
 TRITON_ALLOW_METRICS="${TRITON_ALLOW_METRICS:-true}"
+TRITON_BACKEND_DIR="${TRITON_BACKEND_DIR:-}"
 TRITON_BACKEND_CONFIG="${TRITON_BACKEND_CONFIG:-}"
 TRITON_OPENAI_FRONTEND="${TRITON_OPENAI_FRONTEND:-false}"
 TRITON_OPENAI_PORT="${TRITON_OPENAI_PORT:-9000}"
@@ -669,6 +689,9 @@ esac
 lib::require_var TRITON_MODEL_REPOSITORY
 [[ -d "$TRITON_MODEL_REPOSITORY" ]] || lib::die "Model repository does not exist: $TRITON_MODEL_REPOSITORY"
 [[ -d "$_TRITON_RESOLVED_PATH" ]] || lib::die "Resolved model path does not exist: $_TRITON_RESOLVED_PATH"
+if [[ -n "$TRITON_BACKEND_DIR" ]] && [[ ! -d "$TRITON_BACKEND_DIR" ]]; then
+  lib::die "TRITON_BACKEND_DIR does not exist: $TRITON_BACKEND_DIR"
+fi
 
 _collect_effective_ports
 _validate_distinct_port_specs "${_TRITON_EFFECTIVE_PORT_SPECS[@]}"
@@ -732,6 +755,10 @@ else
     --strict-readiness="$TRITON_STRICT_READINESS"
     --log-verbose="$TRITON_LOG_VERBOSE"
   )
+
+  if [[ -n "$TRITON_BACKEND_DIR" ]]; then
+    cmd+=(--backend-directory="$TRITON_BACKEND_DIR")
+  fi
 
   if ! lib::is_truthy "$TRITON_ALLOW_HTTP"; then
     cmd+=(--allow-http=false)

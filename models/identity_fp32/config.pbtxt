@@ -1,0 +1,19 @@
+name: "identity_fp32"
+backend: "python"
+max_batch_size: 8
+
+input [{
+  name: "INPUT0"
+  data_type: TYPE_FP32
+  dims: [ 4 ]
+}]
+
+output [{
+  name: "OUTPUT0"
+  data_type: TYPE_FP32
+  dims: [ 4 ]
+}]
+
+instance_group [{
+  kind: KIND_CPU
+}]

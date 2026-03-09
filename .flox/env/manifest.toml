@@ -15,8 +15,20 @@ version = 1
 ##  $ flox show gum     <- show all versions of a package
 ## -------------------------------------------------------------------
 [install]
+triton-server.store-path = "/nix/store/0fgkz60kl9pfl541p1k9pwvw4x1lhgbm-triton-server-2.66.0"
+triton-python-backend.store-path = "/nix/store/yhk1sv3ycny5k27nyfimsa4pb9xdin9y-triton-python-backend-2.66.0"
+triton-python-backend.priority = 10
 shellcheck.pkg-path = "shellcheck"
 bats.pkg-path = "bats"
+numpy.pkg-path = "flox-cuda/python3Packages.numpy"
+numpy.systems = ["aarch64-linux", "x86_64-linux"]
+numpy.pkg-group = "numpy"
+torch.pkg-path = "flox-cuda/python3Packages.torch"
+torch.systems = ["aarch64-linux", "x86_64-linux"]
+torch.pkg-group = "torch"
+transformers.pkg-path = "flox-cuda/python3Packages.transformers"
+transformers.systems = ["aarch64-linux", "x86_64-linux"]
+transformers.pkg-group = "transformers"
 # gum.pkg-path = "gum"
 # gum.version = "^0.14.5"
 
