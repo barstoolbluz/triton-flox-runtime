@@ -2,7 +2,7 @@
 
 Production NVIDIA Triton Inference Server deployment as a Flox environment. Serves model repositories (TensorRT, ONNX, PyTorch, TensorFlow, Python, vLLM backends) via `tritonserver` with GPU acceleration and multi-port serving (HTTP, gRPC, metrics).
 
-- **Triton Inference Server**: latest (via Flox package)
+- **Triton Inference Server**: v2.66.0 (built from source via Nix)
 - **CUDA**: requires NVIDIA driver with CUDA support
 - **Platform**: Linux only (`/proc` required for preflight)
 
@@ -114,7 +114,7 @@ triton-preflight && triton-resolve-model && triton-serve
 2. **triton-resolve-model** -- Provisions the model repository from configured sources with per-model locking, staging directories, atomic swaps, and layout validation. Writes a per-model env file.
 3. **triton-serve** -- Loads the env file (safe or trusted mode), validates all required vars, and `exec`s either `tritonserver` (default) or `python3 main.py` (when `TRITON_OPENAI_FRONTEND=true`).
 
-Scripts are provided by the `flox/triton-runtime` package and available on `PATH` after activation.
+Scripts are bundled in the `triton-server` Nix derivation at `$out/bin/` and available on `PATH` after `flox activate`.
 
 ## Model repository layout
 
@@ -861,7 +861,7 @@ are referenced in `manifest.toml` via `store-path`:
 ```toml
 # .flox/env/manifest.toml
 [install]
-triton-server.store-path = "/nix/store/0fgkz60kl9pfl541p1k9pwvw4x1lhgbm-triton-server-2.66.0"
+triton-server.store-path = "/nix/store/383pyayhwglsv3ywgzlzaf3pd2i72xmq-triton-server-2.66.0"
 triton-python-backend.store-path = "/nix/store/yhk1sv3ycny5k27nyfimsa4pb9xdin9y-triton-python-backend-2.66.0"
 triton-python-backend.priority = 10
 triton-onnxruntime-backend.store-path = "/nix/store/x7wsykzn8xrwn1vrf6a7h6k1193i5jcd-triton-onnxruntime-backend-2.66.0"
@@ -1078,20 +1078,31 @@ triton-runtime/
       triton_python_backend_stub       # -> python backend store path
       triton_python_backend_utils.py   # -> python backend store path
       utils/                    # vLLM backend utilities
-  models/                       # Model repository (created at runtime)
-    my-onnx-model/
-      config.pbtxt
-      1/
-        model.onnx
+  models/                       # Model repository
     vllm_test/                  # Example vLLM model (facebook/opt-125m)
       config.pbtxt
       1/
         model.json
-    .staging/                   # Temp dirs during downloads (cleaned up)
+    qwen3_8b/                   # Qwen3-8B via vLLM backend
+      config.pbtxt
+      1/
+        model.json
+    qwen2_5_05b/                # Qwen2.5-0.5B via Python backend (transformers)
+      config.pbtxt
+      1/
+        model.py
+    onnx_identity/              # ONNX identity test model
+      config.pbtxt
+      1/
+        model.onnx
+    identity_fp32/              # Python backend identity test model
+      config.pbtxt
+      1/
+        model.py
   README.md
 ```
 
-Scripts (`triton-preflight`, `triton-resolve-model`, `triton-serve`, `_lib.sh`) are provided by the `flox/triton-runtime` package and available on `PATH` after activation. They are not stored in this directory.
+Scripts (`triton-preflight`, `triton-resolve-model`, `triton-serve`, `_lib.sh`) are bundled in the `triton-server` Nix derivation and available on `PATH` after `flox activate`. They are not stored in this repository; their source lives in the [build-triton-server](../builds/build-triton-server/) repo under `scripts/`.
 
 ## Security notes
 
