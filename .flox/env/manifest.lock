@@ -61,7 +61,9 @@
         ]
       }
     },
-    "hook": {},
+    "hook": {
+      "on-activate": "  triton-setup-backends\n  export TRITON_BACKEND_DIR=\"$FLOX_ENV_CACHE/backends\"\n"
+    },
     "profile": {},
     "options": {}
   },
@@ -79,7 +81,7 @@
       "rev": "2fc6539b481e1d2569f25f8799236694180c0993",
       "rev_count": 953160,
       "rev_date": "2026-02-23T12:05:20Z",
-      "scrape_date": "2026-03-09T21:10:25.454826818Z",
+      "scrape_date": "2026-03-10T21:47:01.265322228Z",
       "stabilities": [
         "unstable",
         "staging",
@@ -111,7 +113,7 @@
       "rev": "2fc6539b481e1d2569f25f8799236694180c0993",
       "rev_count": 953160,
       "rev_date": "2026-02-23T12:05:20Z",
-      "scrape_date": "2026-03-09T21:10:25.454831425Z",
+      "scrape_date": "2026-03-10T21:47:01.265326624Z",
       "stabilities": [
         "unstable",
         "staging",
@@ -411,7 +413,7 @@
       "rev": "3fe4183645d01cfb6aa022eabbd880c2dc0c2218",
       "rev_count": 11,
       "rev_date": "2026-03-10T17:59:34Z",
-      "scrape_date": "2026-03-10T18:14:03.601865651Z",
+      "scrape_date": "2026-03-10T21:47:01.265341436Z",
       "stabilities": [
         "unstable",
         "staging",
@@ -442,7 +444,7 @@
       "rev": "3fe4183645d01cfb6aa022eabbd880c2dc0c2218",
       "rev_count": 11,
       "rev_date": "2026-03-10T17:59:34Z",
-      "scrape_date": "2026-03-10T18:14:03.601867394Z",
+      "scrape_date": "2026-03-10T21:47:01.265341787Z",
       "stabilities": [
         "unstable",
         "staging",
@@ -463,17 +465,17 @@
     {
       "attr_path": "triton-server",
       "broken": false,
-      "derivation": "/nix/store/8kbc36c3p8pv1gxy00nv35ki37drj9bg-triton-server-2.66.0.drv",
+      "derivation": "/nix/store/mf1wvc88279pl0nchm79696wp3dvh11y-triton-server-2.66.0.drv",
       "description": "NVIDIA Triton Inference Server",
       "install_id": "triton-server",
       "license": "BSD-3-Clause",
-      "locked_url": "git@github.com:barstoolbluz/build-triton-server.git?rev=3fe4183645d01cfb6aa022eabbd880c2dc0c2218",
+      "locked_url": "git@github.com:barstoolbluz/build-triton-server.git?rev=befb3c41b3c0c900eeb96851ea734c6bd5e3a371",
       "name": "triton-server-2.66.0",
       "pname": "triton-server",
-      "rev": "3fe4183645d01cfb6aa022eabbd880c2dc0c2218",
-      "rev_count": 11,
-      "rev_date": "2026-03-10T17:59:34Z",
-      "scrape_date": "2026-03-10T18:14:03.601868165Z",
+      "rev": "befb3c41b3c0c900eeb96851ea734c6bd5e3a371",
+      "rev_count": 12,
+      "rev_date": "2026-03-10T18:43:45Z",
+      "scrape_date": "2026-03-10T21:47:01.265342037Z",
       "stabilities": [
         "unstable",
         "staging",
@@ -485,7 +487,7 @@
         "out"
       ],
       "outputs": {
-        "out": "/nix/store/s9fly3hvryakf8vlrqsq5piw5yml25ad-triton-server-2.66.0"
+        "out": "/nix/store/i0dp1ki4jgdyln561c1p69jilqpnf7gx-triton-server-2.66.0"
       },
       "system": "x86_64-linux",
       "group": "toplevel",
@@ -504,7 +506,7 @@
       "rev": "80bdc1e5ce51f56b19791b52b2901187931f5353",
       "rev_count": 958232,
       "rev_date": "2026-03-04T11:34:51Z",
-      "scrape_date": "2026-03-09T21:17:38.451933218Z",
+      "scrape_date": "2026-03-10T21:47:01.265345733Z",
       "stabilities": [
         "unstable",
         "staging"
@@ -538,7 +540,7 @@
       "rev": "80bdc1e5ce51f56b19791b52b2901187931f5353",
       "rev_count": 958232,
       "rev_date": "2026-03-04T11:34:51Z",
-      "scrape_date": "2026-03-09T21:17:38.451936312Z",
+      "scrape_date": "2026-03-10T21:47:01.265346304Z",
       "stabilities": [
         "unstable",
         "staging"
@@ -562,29 +564,28 @@
     {
       "attr_path": "python3Packages.transformers",
       "broken": false,
-      "derivation": "/nix/store/ggswg30b7hn1whb8ml0cll9554v18g97-python3.13-transformers-5.2.0.drv",
+      "derivation": "/nix/store/m74npsf6jk9yrnj9jwrg7j419rkh9bdz-python3.13-transformers-5.3.0.drv",
       "description": "Natural Language Processing for TensorFlow 2.0 and PyTorch",
       "install_id": "transformers",
       "license": "Apache-2.0",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=80bdc1e5ce51f56b19791b52b2901187931f5353",
-      "name": "python3.13-transformers-5.2.0",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=aca4d95fce4914b3892661bcb80b8087293536c6",
+      "name": "python3.13-transformers-5.3.0",
       "pname": "transformers",
-      "rev": "80bdc1e5ce51f56b19791b52b2901187931f5353",
-      "rev_count": 958232,
-      "rev_date": "2026-03-04T11:34:51Z",
-      "scrape_date": "2026-03-09T21:17:38.451938566Z",
+      "rev": "aca4d95fce4914b3892661bcb80b8087293536c6",
+      "rev_count": 958961,
+      "rev_date": "2026-03-06T04:56:59Z",
+      "scrape_date": "2026-03-10T21:47:01.265348056Z",
       "stabilities": [
-        "unstable",
-        "staging"
+        "unstable"
       ],
       "unfree": false,
-      "version": "5.2.0",
+      "version": "5.3.0",
       "outputs_to_install": [
         "out"
       ],
       "outputs": {
-        "dist": "/nix/store/hhnv3nkfjd2prk0131agr9i7pji8z8yp-python3.13-transformers-5.2.0-dist",
-        "out": "/nix/store/kp2wh6nvvylk3bygv0yw1d5hbzq7m10y-python3.13-transformers-5.2.0"
+        "dist": "/nix/store/v1wdihiikialr04zqq8lfh2razi9fmwh-python3.13-transformers-5.3.0-dist",
+        "out": "/nix/store/40y8plzk3kn94wgpw9ibnig499pjsqhb-python3.13-transformers-5.3.0"
       },
       "system": "aarch64-linux",
       "group": "transformers",
@@ -593,29 +594,28 @@
     {
       "attr_path": "python3Packages.transformers",
       "broken": false,
-      "derivation": "/nix/store/m1l8pp0zg734mk4rdcbpj0lx0l44m8dw-python3.13-transformers-5.2.0.drv",
+      "derivation": "/nix/store/32abrsi8s20ma66hi1q92inihv6192cz-python3.13-transformers-5.3.0.drv",
       "description": "Natural Language Processing for TensorFlow 2.0 and PyTorch",
       "install_id": "transformers",
       "license": "Apache-2.0",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=80bdc1e5ce51f56b19791b52b2901187931f5353",
-      "name": "python3.13-transformers-5.2.0",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=aca4d95fce4914b3892661bcb80b8087293536c6",
+      "name": "python3.13-transformers-5.3.0",
       "pname": "transformers",
-      "rev": "80bdc1e5ce51f56b19791b52b2901187931f5353",
-      "rev_count": 958232,
-      "rev_date": "2026-03-04T11:34:51Z",
-      "scrape_date": "2026-03-09T21:17:38.451938986Z",
+      "rev": "aca4d95fce4914b3892661bcb80b8087293536c6",
+      "rev_count": 958961,
+      "rev_date": "2026-03-06T04:56:59Z",
+      "scrape_date": "2026-03-10T21:47:01.265348417Z",
       "stabilities": [
-        "unstable",
-        "staging"
+        "unstable"
       ],
       "unfree": false,
-      "version": "5.2.0",
+      "version": "5.3.0",
       "outputs_to_install": [
         "out"
       ],
       "outputs": {
-        "dist": "/nix/store/wr1ms7c3272y3xy6hxcfm2vk2dinb55m-python3.13-transformers-5.2.0-dist",
-        "out": "/nix/store/dmrp5w2sjds96pxcwbj8csxv1c0l70sq-python3.13-transformers-5.2.0"
+        "dist": "/nix/store/7fcc0hywnxgffvs6p0inmhpgdsxc1p3x-python3.13-transformers-5.3.0-dist",
+        "out": "/nix/store/my5xwx8w7fmzqdqy36hdisb8cs2c9sk1-python3.13-transformers-5.3.0"
       },
       "system": "x86_64-linux",
       "group": "transformers",
@@ -634,7 +634,7 @@
       "rev": "9dcb002ca1690658be4a04645215baea8b95f31d",
       "rev_count": 960399,
       "rev_date": "2026-03-08T09:52:19Z",
-      "scrape_date": "2026-03-10T14:44:56.887537110Z",
+      "scrape_date": "2026-03-10T21:47:01.265357410Z",
       "stabilities": [
         "unstable"
       ],

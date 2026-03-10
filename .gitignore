@@ -3,3 +3,9 @@ result-*
 .staging/
 .published/
 *.pyc
+
+# Dynamic backend symlinks created by triton-setup-backends
+backends/python
+backends/onnxruntime
+backends/vllm/triton_python_backend_stub
+backends/vllm/triton_python_backend_utils.py
