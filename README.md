@@ -205,6 +205,7 @@ TRITON_HTTP_PORT=9000 TRITON_LOG_VERBOSE=1 flox activate --start-services
 | `TRITON_ALLOW_HTTP` | `true` | Enable HTTP endpoint. Accepts `true`/`false`/`1`/`0`/`yes`/`no` |
 | `TRITON_ALLOW_GRPC` | `true` | Enable gRPC endpoint. Accepts `true`/`false`/`1`/`0`/`yes`/`no` |
 | `TRITON_ALLOW_METRICS` | `true` | Enable Prometheus metrics endpoint. Accepts `true`/`false`/`1`/`0`/`yes`/`no` |
+| `TRITON_BACKEND_DIR` | _(unset)_ | Backend library directory. When set, passed as `--backend-directory` to tritonserver. Must exist as a directory |
 | `TRITON_BACKEND_CONFIG` | _(unset)_ | Comma-separated backend configs. Format: `backend:key=val,backend:key=val` |
 
 ### OpenAI frontend settings
@@ -550,6 +551,7 @@ tritonserver \
   --model-control-mode=<TRITON_MODEL_CONTROL_MODE> \
   --strict-readiness=<TRITON_STRICT_READINESS> \
   --log-verbose=<TRITON_LOG_VERBOSE> \
+  [--backend-directory=<TRITON_BACKEND_DIR>] # if TRITON_BACKEND_DIR is set
   [--allow-http=false]                    # if TRITON_ALLOW_HTTP is falsy
   [--allow-grpc=false]                    # if TRITON_ALLOW_GRPC is falsy
   [--allow-metrics=false]                 # if TRITON_ALLOW_METRICS is falsy
@@ -568,6 +570,7 @@ The env-var-to-CLI-flag mapping:
 | `TRITON_MODEL_CONTROL_MODE` | `--model-control-mode` | Always |
 | `TRITON_STRICT_READINESS` | `--strict-readiness` | Always |
 | `TRITON_LOG_VERBOSE` | `--log-verbose` | Always |
+| `TRITON_BACKEND_DIR` | `--backend-directory` | When set |
 | `TRITON_ALLOW_HTTP` | `--allow-http=false` | When falsy |
 | `TRITON_ALLOW_GRPC` | `--allow-grpc=false` | When falsy |
 | `TRITON_ALLOW_METRICS` | `--allow-metrics=false` | When falsy |
@@ -843,11 +846,105 @@ Any flags not covered by env vars can be passed through:
 triton-serve -- --buffer-manager-thread-count 8 --pinned-memory-pool-byte-size 268435456
 ```
 
+## Backends
+
+Triton backends are loaded from the directory specified by `TRITON_BACKEND_DIR`. Each
+backend is a subdirectory containing a shared library (`libtriton_<name>.so`).
+
+### Built-from-source backends
+
+The server and backends are built from source via Nix expressions in a separate build
+repository ([build-triton-server](../builds/build-triton-server/)). The resulting Nix
+store paths are referenced in `manifest.toml` via `store-path`:
+
+```toml
+# .flox/env/manifest.toml
+[install]
+triton-server.store-path = "/nix/store/0fgkz60kl9pfl541p1k9pwvw4x1lhgbm-triton-server-2.66.0"
+triton-python-backend.store-path = "/nix/store/yhk1sv3ycny5k27nyfimsa4pb9xdin9y-triton-python-backend-2.66.0"
+triton-python-backend.priority = 10
+triton-onnxruntime-backend.store-path = "/nix/store/x7wsykzn8xrwn1vrf6a7h6k1193i5jcd-triton-onnxruntime-backend-2.66.0"
+```
+
+### Backend directory setup
+
+When using multiple backends, create a combined directory with symlinks:
+
+```bash
+mkdir -p backends
+ln -s /nix/store/yhk1sv3ycny5k27nyfimsa4pb9xdin9y-triton-python-backend-2.66.0/backends/python backends/python
+ln -s /nix/store/x7wsykzn8xrwn1vrf6a7h6k1193i5jcd-triton-onnxruntime-backend-2.66.0/backends/onnxruntime backends/onnxruntime
+```
+
+Then point Triton at it:
+
+```bash
+TRITON_BACKEND_DIR=./backends flox activate --start-services
+```
+
+Or pass it directly:
+
+```bash
+tritonserver --backend-directory=./backends --model-repository=./models
+```
+
+### Available backends
+
+| Backend | Store path | Library |
+|---------|-----------|---------|
+| Python | `triton-python-backend` | `backends/python/libtriton_python.so` |
+| ONNX Runtime | `triton-onnxruntime-backend` | `backends/onnxruntime/libtriton_onnxruntime.so` |
+
+The ONNX Runtime backend loads `libonnxruntime.so` (ORT 1.24.2) from its Nix store
+RPATH automatically -- no need to copy ORT libraries into the backend directory.
+
+### ONNX Runtime backend details
+
+The ORT backend uses the **CUDA execution provider** by default when `instance_group`
+is set to `KIND_GPU`. Models are loaded into an ORT inference session and served through
+Triton's standard HTTP/gRPC/metrics endpoints.
+
+Example `config.pbtxt` for an ONNX model:
+
+```
+name: "my_onnx_model"
+platform: "onnxruntime_onnx"
+max_batch_size: 0
+
+input [{
+  name: "INPUT0"
+  data_type: TYPE_FP32
+  dims: [ 1, 4 ]
+}]
+
+output [{
+  name: "OUTPUT0"
+  data_type: TYPE_FP32
+  dims: [ 1, 4 ]
+}]
+
+instance_group [{
+  kind: KIND_GPU
+}]
+```
+
+Key fields:
+- **`platform`**: Must be `"onnxruntime_onnx"` (tells Triton to use the ORT backend)
+- **`instance_group.kind`**: `KIND_GPU` for CUDA execution, `KIND_CPU` for CPU-only
+- **`max_batch_size: 0`**: Disables dynamic batching (set > 0 if your model supports it)
+- Model artifact must be named `model.onnx` in each version directory
+
+Verified working: ORT backend loads the CUDA execution provider, creates an inference
+session, and serves models through Triton on this system (RTX 5090, driver 590.48.01).
+
 ## File structure
 
 ```
 triton-runtime/
   .flox/env/manifest.toml      # Flox manifest (packages, on-activate hook, service)
+  backends/                     # Combined backend directory (symlinks to store paths)
+    python/                     # -> /nix/store/...-triton-python-backend-2.66.0/backends/python
+    onnxruntime/                # -> /nix/store/...-triton-onnxruntime-backend-2.66.0/backends/onnxruntime
   models/                       # Model repository (created at runtime)
     my-onnx-model/
       config.pbtxt
