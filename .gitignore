@@ -1,0 +1,5 @@
+__pycache__/
+result-*
+.staging/
+.published/
+*.pyc
