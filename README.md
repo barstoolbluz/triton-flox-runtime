@@ -853,9 +853,10 @@ backend is a subdirectory containing a shared library (`libtriton_<name>.so`).
 
 ### Built-from-source backends
 
-The server and backends are built from source via Nix expressions in a separate build
-repository ([build-triton-server](../builds/build-triton-server/)). The resulting Nix
-store paths are referenced in `manifest.toml` via `store-path`:
+The server and compiled backends (Python, ONNX Runtime) are built from source via Nix
+expressions in a separate build repository
+([build-triton-server](../builds/build-triton-server/)). The resulting Nix store paths
+are referenced in `manifest.toml` via `store-path`:
 
 ```toml
 # .flox/env/manifest.toml
@@ -865,6 +866,24 @@ triton-python-backend.store-path = "/nix/store/yhk1sv3ycny5k27nyfimsa4pb9xdin9y-
 triton-python-backend.priority = 10
 triton-onnxruntime-backend.store-path = "/nix/store/x7wsykzn8xrwn1vrf6a7h6k1193i5jcd-triton-onnxruntime-backend-2.66.0"
 ```
+
+### Nixpkgs-provided packages
+
+Some backends and their dependencies are available pre-built from nixpkgs (via the
+`flox-cuda` channel) and require no custom Nix build expressions:
+
+```toml
+# .flox/env/manifest.toml
+[install]
+vllm.pkg-path = "flox-cuda/python3Packages.vllm"
+vllm.systems = ["x86_64-linux"]
+vllm.pkg-group = "vllm"
+```
+
+The vLLM engine (v0.15.1) is installed this way. The vLLM *backend* itself is pure
+Python — source files from the
+[vllm_backend](https://github.com/triton-inference-server/vllm_backend) repo are
+checked directly into `backends/vllm/` with no compilation step.
 
 ### Backend directory setup
 
