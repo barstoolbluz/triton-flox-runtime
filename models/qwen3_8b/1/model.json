@@ -1,0 +1,7 @@
+{
+  "model": "/mnt/scratch/models/inferencing/hub/models--Qwen--Qwen3-8B/snapshots/b968826d9c46dd6066d109eabc6255188de91218",
+  "gpu_memory_utilization": 0.7,
+  "enable_log_requests": false,
+  "enforce_eager": true,
+  "max_model_len": 4096
+}

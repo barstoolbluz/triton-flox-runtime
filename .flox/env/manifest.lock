@@ -42,7 +42,7 @@
         "priority": 10
       },
       "triton-server": {
-        "store-path": "/nix/store/0fgkz60kl9pfl541p1k9pwvw4x1lhgbm-triton-server-2.66.0"
+        "store-path": "/nix/store/383pyayhwglsv3ywgzlzaf3pd2i72xmq-triton-server-2.66.0"
       },
       "vllm": {
         "pkg-path": "flox-cuda/python3Packages.vllm",
@@ -107,25 +107,25 @@
     },
     {
       "install_id": "triton-server",
-      "store_path": "/nix/store/0fgkz60kl9pfl541p1k9pwvw4x1lhgbm-triton-server-2.66.0",
+      "store_path": "/nix/store/383pyayhwglsv3ywgzlzaf3pd2i72xmq-triton-server-2.66.0",
       "system": "aarch64-darwin",
       "priority": 5
     },
     {
       "install_id": "triton-server",
-      "store_path": "/nix/store/0fgkz60kl9pfl541p1k9pwvw4x1lhgbm-triton-server-2.66.0",
+      "store_path": "/nix/store/383pyayhwglsv3ywgzlzaf3pd2i72xmq-triton-server-2.66.0",
       "system": "aarch64-linux",
       "priority": 5
     },
     {
       "install_id": "triton-server",
-      "store_path": "/nix/store/0fgkz60kl9pfl541p1k9pwvw4x1lhgbm-triton-server-2.66.0",
+      "store_path": "/nix/store/383pyayhwglsv3ywgzlzaf3pd2i72xmq-triton-server-2.66.0",
       "system": "x86_64-darwin",
       "priority": 5
     },
     {
       "install_id": "triton-server",
-      "store_path": "/nix/store/0fgkz60kl9pfl541p1k9pwvw4x1lhgbm-triton-server-2.66.0",
+      "store_path": "/nix/store/383pyayhwglsv3ywgzlzaf3pd2i72xmq-triton-server-2.66.0",
       "system": "x86_64-linux",
       "priority": 5
     },

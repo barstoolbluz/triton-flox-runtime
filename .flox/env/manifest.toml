@@ -15,7 +15,7 @@ version = 1
 ##  $ flox show gum     <- show all versions of a package
 ## -------------------------------------------------------------------
 [install]
-triton-server.store-path = "/nix/store/0fgkz60kl9pfl541p1k9pwvw4x1lhgbm-triton-server-2.66.0"
+triton-server.store-path = "/nix/store/383pyayhwglsv3ywgzlzaf3pd2i72xmq-triton-server-2.66.0"
 triton-python-backend.store-path = "/nix/store/yhk1sv3ycny5k27nyfimsa4pb9xdin9y-triton-python-backend-2.66.0"
 triton-python-backend.priority = 10
 triton-onnxruntime-backend.store-path = "/nix/store/x7wsykzn8xrwn1vrf6a7h6k1193i5jcd-triton-onnxruntime-backend-2.66.0"
