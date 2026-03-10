@@ -874,6 +874,7 @@ When using multiple backends, create a combined directory with symlinks:
 mkdir -p backends
 ln -s /nix/store/yhk1sv3ycny5k27nyfimsa4pb9xdin9y-triton-python-backend-2.66.0/backends/python backends/python
 ln -s /nix/store/x7wsykzn8xrwn1vrf6a7h6k1193i5jcd-triton-onnxruntime-backend-2.66.0/backends/onnxruntime backends/onnxruntime
+# vllm backend is already in backends/vllm/ (pure Python, not a store-path symlink)
 ```
 
 Then point Triton at it:
@@ -894,6 +895,7 @@ tritonserver --backend-directory=./backends --model-repository=./models
 |---------|-----------|---------|
 | Python | `triton-python-backend` | `backends/python/libtriton_python.so` |
 | ONNX Runtime | `triton-onnxruntime-backend` | `backends/onnxruntime/libtriton_onnxruntime.so` |
+| vLLM | (pure Python) | `backends/vllm/model.py` + Python backend stub |
 
 The ONNX Runtime backend loads `libonnxruntime.so` (ORT 1.24.2) from its Nix store
 RPATH automatically -- no need to copy ORT libraries into the backend directory.
@@ -937,6 +939,113 @@ Key fields:
 Verified working: ORT backend loads the CUDA execution provider, creates an inference
 session, and serves models through Triton on this system (RTX 5090, driver 590.48.01).
 
+### vLLM backend details
+
+The vLLM backend serves large language models using [vLLM](https://github.com/vllm-project/vllm)'s
+high-performance async engine. Unlike compiled backends, vLLM is a **pure Python backend** that
+runs on top of Triton's Python backend infrastructure (`TritonPythonModel`).
+
+Source files come from [triton-inference-server/vllm_backend](https://github.com/triton-inference-server/vllm_backend)
+at tag `r26.02`. The vLLM engine itself is installed via `flox-cuda/python3Packages.vllm`.
+
+**Backend directory structure:**
+
+```
+backends/vllm/
+  model.py                         # Main TritonPythonModel (from vllm_backend repo)
+  triton_python_backend_stub       # Symlink -> python backend store path
+  triton_python_backend_utils.py   # Symlink -> python backend store path
+  utils/
+    __init__.py
+    metrics.py                     # TritonMetrics, VllmStatLogger
+    request.py                     # GenerateRequest, EmbedRequest
+    vllm_backend_utils.py          # TritonSamplingParams, engine client builder
+```
+
+**Model configuration** requires two files per model:
+
+`config.pbtxt` -- Triton model config:
+
+```
+backend: "vllm"
+
+instance_group [
+  {
+    count: 1
+    kind: KIND_MODEL
+  }
+]
+
+model_transaction_policy {
+  decoupled: True
+}
+
+input [
+  {
+    name: "text_input"
+    data_type: TYPE_STRING
+    dims: [ 1 ]
+  },
+  {
+    name: "stream"
+    data_type: TYPE_BOOL
+    dims: [ 1 ]
+    optional: true
+  },
+  {
+    name: "sampling_parameters"
+    data_type: TYPE_STRING
+    dims: [ 1 ]
+    optional: true
+  },
+  {
+    name: "exclude_input_in_output"
+    data_type: TYPE_BOOL
+    dims: [ 1 ]
+    optional: true
+  }
+]
+
+output [
+  {
+    name: "text_output"
+    data_type: TYPE_STRING
+    dims: [ -1 ]
+  }
+]
+```
+
+`1/model.json` -- vLLM engine arguments:
+
+```json
+{
+  "model": "facebook/opt-125m",
+  "enable_log_requests": false,
+  "gpu_memory_utilization": 0.3,
+  "enforce_eager": true
+}
+```
+
+Key `model.json` fields:
+- **`model`**: HuggingFace model name or local path
+- **`gpu_memory_utilization`**: fraction of GPU memory to use (0.0-1.0)
+- **`tensor_parallel_size`**: number of GPUs for tensor parallelism
+- **`enable_log_requests`**: enable per-request logging (default: true, set false to suppress)
+- **`max_model_len`**: override maximum sequence length
+- **`quantization`**: quantization method (`awq`, `gptq`, `squeezellm`)
+- **`enforce_eager`**: disable CUDA graphs (useful for debugging)
+
+See the [vLLM engine arguments documentation](https://docs.vllm.ai/en/latest/serving/engine_args.html)
+for the full list.
+
+**Example inference request:**
+
+```bash
+curl -X POST http://127.0.0.1:8000/v2/models/vllm_test/generate \
+  -H "Content-Type: application/json" \
+  -d '{"text_input": "What is machine learning?", "parameters": {"max_tokens": 64, "stream": false}}'
+```
+
 ## File structure
 
 ```
@@ -945,11 +1054,20 @@ triton-runtime/
   backends/                     # Combined backend directory (symlinks to store paths)
     python/                     # -> /nix/store/...-triton-python-backend-2.66.0/backends/python
     onnxruntime/                # -> /nix/store/...-triton-onnxruntime-backend-2.66.0/backends/onnxruntime
+    vllm/                       # Pure Python backend (vllm_backend r26.02 sources)
+      model.py                  # Main TritonPythonModel
+      triton_python_backend_stub       # -> python backend store path
+      triton_python_backend_utils.py   # -> python backend store path
+      utils/                    # vLLM backend utilities
   models/                       # Model repository (created at runtime)
     my-onnx-model/
       config.pbtxt
       1/
         model.onnx
+    vllm_test/                  # Example vLLM model (facebook/opt-125m)
+      config.pbtxt
+      1/
+        model.json
     .staging/                   # Temp dirs during downloads (cleaned up)
   README.md
 ```

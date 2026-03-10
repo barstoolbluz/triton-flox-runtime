@@ -33,12 +33,23 @@
           "x86_64-linux"
         ]
       },
+      "triton-onnxruntime-backend": {
+        "store-path": "/nix/store/x7wsykzn8xrwn1vrf6a7h6k1193i5jcd-triton-onnxruntime-backend-2.66.0",
+        "priority": 11
+      },
       "triton-python-backend": {
         "store-path": "/nix/store/yhk1sv3ycny5k27nyfimsa4pb9xdin9y-triton-python-backend-2.66.0",
         "priority": 10
       },
       "triton-server": {
         "store-path": "/nix/store/0fgkz60kl9pfl541p1k9pwvw4x1lhgbm-triton-server-2.66.0"
+      },
+      "vllm": {
+        "pkg-path": "flox-cuda/python3Packages.vllm",
+        "pkg-group": "vllm",
+        "systems": [
+          "x86_64-linux"
+        ]
       }
     },
     "hook": {},
@@ -46,6 +57,30 @@
     "options": {}
   },
   "packages": [
+    {
+      "install_id": "triton-onnxruntime-backend",
+      "store_path": "/nix/store/x7wsykzn8xrwn1vrf6a7h6k1193i5jcd-triton-onnxruntime-backend-2.66.0",
+      "system": "aarch64-darwin",
+      "priority": 11
+    },
+    {
+      "install_id": "triton-onnxruntime-backend",
+      "store_path": "/nix/store/x7wsykzn8xrwn1vrf6a7h6k1193i5jcd-triton-onnxruntime-backend-2.66.0",
+      "system": "aarch64-linux",
+      "priority": 11
+    },
+    {
+      "install_id": "triton-onnxruntime-backend",
+      "store_path": "/nix/store/x7wsykzn8xrwn1vrf6a7h6k1193i5jcd-triton-onnxruntime-backend-2.66.0",
+      "system": "x86_64-darwin",
+      "priority": 11
+    },
+    {
+      "install_id": "triton-onnxruntime-backend",
+      "store_path": "/nix/store/x7wsykzn8xrwn1vrf6a7h6k1193i5jcd-triton-onnxruntime-backend-2.66.0",
+      "system": "x86_64-linux",
+      "priority": 11
+    },
     {
       "install_id": "triton-python-backend",
       "store_path": "/nix/store/yhk1sv3ycny5k27nyfimsa4pb9xdin9y-triton-python-backend-2.66.0",
@@ -538,6 +573,36 @@
       },
       "system": "x86_64-linux",
       "group": "transformers",
+      "priority": 5
+    },
+    {
+      "attr_path": "python3Packages.vllm",
+      "broken": false,
+      "derivation": "/nix/store/2148pqyg9vbv408rg8wbwdahlqz814hj-python3.13-vllm-0.15.1.drv",
+      "description": "High-throughput and memory-efficient inference and serving engine for LLMs",
+      "install_id": "vllm",
+      "license": "Apache-2.0",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=9dcb002ca1690658be4a04645215baea8b95f31d",
+      "name": "python3.13-vllm-0.15.1",
+      "pname": "vllm",
+      "rev": "9dcb002ca1690658be4a04645215baea8b95f31d",
+      "rev_count": 960399,
+      "rev_date": "2026-03-08T09:52:19Z",
+      "scrape_date": "2026-03-10T14:44:56.887537110Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "0.15.1",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "dist": "/nix/store/263gfwbgnv562kij0v24yxiam9haqzmp-python3.13-vllm-0.15.1-dist",
+        "out": "/nix/store/m7f0g7qnlijhgm8fsadv7lkmn090bv9s-python3.13-vllm-0.15.1"
+      },
+      "system": "x86_64-linux",
+      "group": "vllm",
       "priority": 5
     }
   ]
