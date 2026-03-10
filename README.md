@@ -81,16 +81,13 @@ triton-preflight && triton-resolve-model && triton-serve
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│  Consuming Environment (.flox/env/manifest.toml)         │
+│  Environment (.flox/env/manifest.toml)                    │
 │                                                          │
 │  [install]                                               │
-│    flox/triton-runtime          # 3-script pipeline      │
-│    python312Packages.huggingface-hub  # HF downloads     │
-│                                                          │
-│  [services]                                              │
-│    triton → triton-preflight                             │
-│             && triton-resolve-model                      │
-│             && triton-serve                              │
+│    triton-server (store-path)   # server + scripts       │
+│    triton-python-backend        # Python backend .so     │
+│    triton-onnxruntime-backend   # ONNX Runtime backend   │
+│    vllm, torch, numpy, ...      # Python ML packages     │
 │                                                          │
 │  ┌────────────────────────────────────────────────────┐  │
 │  │  triton-preflight                                  │  │
@@ -865,6 +862,7 @@ triton-server.store-path = "/nix/store/383pyayhwglsv3ywgzlzaf3pd2i72xmq-triton-s
 triton-python-backend.store-path = "/nix/store/yhk1sv3ycny5k27nyfimsa4pb9xdin9y-triton-python-backend-2.66.0"
 triton-python-backend.priority = 10
 triton-onnxruntime-backend.store-path = "/nix/store/x7wsykzn8xrwn1vrf6a7h6k1193i5jcd-triton-onnxruntime-backend-2.66.0"
+triton-onnxruntime-backend.priority = 11
 ```
 
 ### Nixpkgs-provided packages
@@ -1069,8 +1067,8 @@ curl -X POST http://127.0.0.1:8000/v2/models/vllm_test/generate \
 
 ```
 triton-runtime/
-  .flox/env/manifest.toml      # Flox manifest (packages, on-activate hook, service)
-  backends/                     # Combined backend directory (symlinks to store paths)
+  .flox/env/manifest.toml      # Flox manifest (packages)
+  backends/                     # Combined backend directory
     python/                     # -> /nix/store/...-triton-python-backend-2.66.0/backends/python
     onnxruntime/                # -> /nix/store/...-triton-onnxruntime-backend-2.66.0/backends/onnxruntime
     vllm/                       # Pure Python backend (vllm_backend r26.02 sources)
@@ -1078,6 +1076,11 @@ triton-runtime/
       triton_python_backend_stub       # -> python backend store path
       triton_python_backend_utils.py   # -> python backend store path
       utils/                    # vLLM backend utilities
+  scripts/                      # Runtime script sources (also bundled in triton-server store path)
+    _lib.sh                     # Shared library sourced by the other scripts
+    triton-preflight            # Pre-flight validation
+    triton-resolve-model        # Multi-source model provisioning
+    triton-serve                # Server launcher
   models/                       # Model repository
     vllm_test/                  # Example vLLM model (facebook/opt-125m)
       config.pbtxt
@@ -1099,10 +1102,11 @@ triton-runtime/
       config.pbtxt
       1/
         model.py
+  tests/                        # Bats test suite
   README.md
 ```
 
-Scripts (`triton-preflight`, `triton-resolve-model`, `triton-serve`, `_lib.sh`) are bundled in the `triton-server` Nix derivation and available on `PATH` after `flox activate`. They are not stored in this repository; their source lives in the [build-triton-server](../builds/build-triton-server/) repo under `scripts/`.
+Scripts are bundled in the `triton-server` Nix derivation at `$out/bin/` and available on `PATH` after `flox activate`. Source copies also live in `scripts/` in this repo and in the [build-triton-server](../builds/build-triton-server/) repo under `scripts/` (which is what the Nix build packages).
 
 ## Security notes
 
