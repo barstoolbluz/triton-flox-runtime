@@ -73,11 +73,15 @@ TRITON_STRICT_READINESS=true \
 
 ## Architecture
 
-The service command chains three scripts in a pipeline:
+The service command chains two scripts:
 
 ```
-triton-preflight && triton-resolve-model && triton-serve
+triton-resolve-model && triton-serve
 ```
+
+`triton-serve` runs `triton-preflight` internally before launching the server (controlled
+by `TRITON_SERVE_RUN_PREFLIGHT`, default `true`), so preflight does not need to be
+chained separately.
 
 ```
 ┌──────────────────────────────────────────────────────────┐
@@ -87,13 +91,11 @@ triton-preflight && triton-resolve-model && triton-serve
 │    triton-server (meetrlyio)    # server + scripts       │
 │    triton-python-backend        # Python backend .so     │
 │    triton-onnxruntime-backend   # ONNX Runtime backend   │
+│    util-linux                   # flock (preflight)      │
+│    iproute2                     # ss (port scanning)     │
 │    vllm, torch, numpy, ...      # Python ML packages     │
 │                                                          │
 │  ┌────────────────────────────────────────────────────┐  │
-│  │  triton-preflight                                  │  │
-│  │    Multi-port reclaim ← /proc/net/tcp + /proc/     │  │
-│  │    GPU health         ← PyTorch or nvidia-smi      │  │
-│  ├────────────────────────────────────────────────────┤  │
 │  │  triton-resolve-model                              │  │
 │  │    Sources: flox → local → r2 → hf-hub             │  │
 │  │    Layout validation: version dirs + artifacts     │  │
@@ -101,15 +103,17 @@ triton-preflight && triton-resolve-model && triton-serve
 │  ├────────────────────────────────────────────────────┤  │
 │  │  triton-serve                                      │  │
 │  │    Loads .env → validates args                      │  │
+│  │    Runs triton-preflight (port reclaim + GPU check) │  │
 │  │    → exec tritonserver  (default)                   │  │
 │  │    → exec python3 main.py  (OPENAI_FRONTEND=true)  │  │
 │  └────────────────────────────────────────────────────┘  │
 └──────────────────────────────────────────────────────────┘
 ```
 
-1. **triton-preflight** -- Reclaims HTTP, gRPC, metrics, and (when `TRITON_OPENAI_FRONTEND=true`) OpenAI ports if occupied by stale tritonserver or OpenAI frontend processes, checks GPU health via PyTorch or nvidia-smi fallback, optionally executes a downstream command.
-2. **triton-resolve-model** -- Provisions the model repository from configured sources with per-model locking, staging directories, atomic swaps, and layout validation. Writes a per-model env file.
-3. **triton-serve** -- Loads the env file (safe or trusted mode), validates all required vars, and `exec`s either `tritonserver` (default) or `python3 main.py` (when `TRITON_OPENAI_FRONTEND=true`).
+1. **triton-resolve-model** -- Provisions the model repository from configured sources with per-model locking, staging directories, atomic swaps, and layout validation. Writes a per-model env file.
+2. **triton-serve** -- Loads the env file (safe or trusted mode), validates all required vars, runs `triton-preflight` for port reclaim and GPU health checks, then `exec`s either `tritonserver` (default) or `python3 main.py` (when `TRITON_OPENAI_FRONTEND=true`).
+
+`triton-preflight` can also be run standalone for diagnostics (see [Pre-flight](#pre-flight-triton-preflight)).
 
 Scripts are bundled in the `triton-server` package at `$out/bin/` and available on `PATH` after `flox activate`.
 
@@ -494,22 +498,22 @@ Examples:
 
 ### Downstream command execution
 
-When positional arguments are provided (with or without a leading `--`), they are executed via `exec` after all checks pass. This is how the service pipeline chains preflight into resolve and serve.
+When positional arguments are provided (with or without a leading `--`), they are executed via `exec` after all checks pass. `triton-serve` uses this internally to delegate to `triton-preflight` before launching the server.
 
 ```bash
-# In the service definition:
-triton-preflight -- triton-resolve-model && triton-serve
+# Standalone usage with a downstream command:
+triton-preflight -- ./start.sh arg1 arg2
 ```
 
 `TRITON_PREFLIGHT_JSON=1` is incompatible with downstream commands because stdout must remain JSON-only.
 
 ### Locking
 
-Acquired via `flock` on `TRITON_PREFLIGHT_LOCKFILE` (default `/tmp/triton-preflight.lock`) with a 10-second timeout. Prevents concurrent preflight runs from racing. The lockfile is validated: symlinks are rejected, and only regular files are accepted.
+Acquired via `flock` (from `util-linux`, installed in the manifest) on `TRITON_PREFLIGHT_LOCKFILE` (default `/tmp/triton-preflight.lock`) with a 10-second timeout. Prevents concurrent preflight runs from racing. The lockfile is validated: symlinks are rejected, and only regular files are accepted. Port scanning uses `ss` (from `iproute2`, also in the manifest) for fast PID-to-port mapping, with a `/proc/net/tcp` fallback.
 
 ## Serving (triton-serve)
 
-Loads the resolved model env file, validates configuration, and executes `tritonserver` (default) or the OpenAI-compatible frontend (`python3 main.py`) when `TRITON_OPENAI_FRONTEND=true`.
+Loads the resolved model env file, validates configuration, runs `triton-preflight` for port reclaim and GPU health checks, then executes `tritonserver` (default) or the OpenAI-compatible frontend (`python3 main.py`) when `TRITON_OPENAI_FRONTEND=true`. The built-in preflight step is controlled by `TRITON_SERVE_RUN_PREFLIGHT` (default `true`).
 
 ### Usage
 
@@ -665,6 +669,15 @@ TRITON_MODEL=resnet50 \
 TRITON_MODEL_REPOSITORY=/data/models \
 TRITON_MODEL_BACKEND=onnx \
   flox activate --start-services
+```
+
+To load only a specific model (avoids loading everything in the model repository):
+
+```bash
+TRITON_MODEL=qwen3_8b \
+TRITON_MODEL_CONTROL_MODE=explicit \
+TRITON_MODEL_SOURCES=local \
+  flox activate -- bash -c 'triton-resolve-model && triton-serve -- --load-model=qwen3_8b'
 ```
 
 For hot-swapping without restart, use `poll` mode:
