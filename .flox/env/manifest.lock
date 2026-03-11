@@ -6,6 +6,12 @@
       "bats": {
         "pkg-path": "bats"
       },
+      "iproute2": {
+        "pkg-path": "iproute2",
+        "systems": [
+          "x86_64-linux"
+        ]
+      },
       "numpy": {
         "pkg-path": "flox-cuda/python3Packages.numpy",
         "pkg-group": "numpy",
@@ -53,6 +59,12 @@
           "x86_64-linux"
         ]
       },
+      "util-linux": {
+        "pkg-path": "util-linux",
+        "systems": [
+          "x86_64-linux"
+        ]
+      },
       "vllm": {
         "pkg-path": "flox-cuda/python3Packages.vllm",
         "pkg-group": "vllm",
@@ -65,7 +77,12 @@
       "on-activate": "  triton-setup-backends\n  export TRITON_BACKEND_DIR=\"$FLOX_ENV_CACHE/backends\"\n"
     },
     "profile": {},
-    "options": {}
+    "options": {},
+    "services": {
+      "tritonserver": {
+        "command": "triton-resolve-model && triton-serve"
+      }
+    }
   },
   "packages": [
     {
@@ -130,6 +147,164 @@
       },
       "system": "x86_64-linux",
       "group": "numpy",
+      "priority": 5
+    },
+    {
+      "attr_path": "python3Packages.torch",
+      "broken": false,
+      "derivation": "/nix/store/nwm0rchw4093kvqlms11y1aairir5764-python3.13-torch-2.10.0.drv",
+      "description": "PyTorch: Tensors and Dynamic neural networks in Python with strong GPU acceleration",
+      "install_id": "torch",
+      "license": "BSD-3-Clause",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=80bdc1e5ce51f56b19791b52b2901187931f5353",
+      "name": "python3.13-torch-2.10.0",
+      "pname": "torchWithCuda",
+      "rev": "80bdc1e5ce51f56b19791b52b2901187931f5353",
+      "rev_count": 958232,
+      "rev_date": "2026-03-04T11:34:51Z",
+      "scrape_date": "2026-03-10T22:00:08.815125609Z",
+      "stabilities": [
+        "unstable",
+        "staging"
+      ],
+      "unfree": false,
+      "version": "python3.13-torch-2.10.0",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "cxxdev": "/nix/store/bx586ggq829y187fsplqz714rnc62vfp-python3.13-torch-2.10.0-cxxdev",
+        "dev": "/nix/store/zhdrxf05gvq2z9hf5sm3ljvfk83pk85z-python3.13-torch-2.10.0-dev",
+        "dist": "/nix/store/v8g8smg770x35hf741kxrqjx6rxkc1z8-python3.13-torch-2.10.0-dist",
+        "lib": "/nix/store/qhj37yv8rl6qsp4d9axrjajiffbzb0sg-python3.13-torch-2.10.0-lib",
+        "out": "/nix/store/fcca5sw5xzwhhszvn7nl0bjky6kvbr8j-python3.13-torch-2.10.0"
+      },
+      "system": "aarch64-linux",
+      "group": "torch",
+      "priority": 5
+    },
+    {
+      "attr_path": "python3Packages.torch",
+      "broken": false,
+      "derivation": "/nix/store/2kbx0idfiaq5dj6ds3nj8bv3fgf173vf-python3.13-torch-2.10.0.drv",
+      "description": "PyTorch: Tensors and Dynamic neural networks in Python with strong GPU acceleration",
+      "install_id": "torch",
+      "license": "BSD-3-Clause",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=80bdc1e5ce51f56b19791b52b2901187931f5353",
+      "name": "python3.13-torch-2.10.0",
+      "pname": "torchWithCuda",
+      "rev": "80bdc1e5ce51f56b19791b52b2901187931f5353",
+      "rev_count": 958232,
+      "rev_date": "2026-03-04T11:34:51Z",
+      "scrape_date": "2026-03-10T22:00:08.815126610Z",
+      "stabilities": [
+        "unstable",
+        "staging"
+      ],
+      "unfree": false,
+      "version": "python3.13-torch-2.10.0",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "cxxdev": "/nix/store/jr9vdkd936d8qb2r0mcpdi5f5ibhb0v6-python3.13-torch-2.10.0-cxxdev",
+        "dev": "/nix/store/gpjc38p1lb5jibib6mzz1hxrd60h212w-python3.13-torch-2.10.0-dev",
+        "dist": "/nix/store/zs3dvq0v52674zrc9nlgm0z3s2ysq4ab-python3.13-torch-2.10.0-dist",
+        "lib": "/nix/store/s5x8dmjajixh6ar9mlsw5y13qg9absyz-python3.13-torch-2.10.0-lib",
+        "out": "/nix/store/0l4jhb8g6ygwnhiivv8i14xnlj7y4lw2-python3.13-torch-2.10.0"
+      },
+      "system": "x86_64-linux",
+      "group": "torch",
+      "priority": 5
+    },
+    {
+      "attr_path": "python3Packages.transformers",
+      "broken": false,
+      "derivation": "/nix/store/m74npsf6jk9yrnj9jwrg7j419rkh9bdz-python3.13-transformers-5.3.0.drv",
+      "description": "Natural Language Processing for TensorFlow 2.0 and PyTorch",
+      "install_id": "transformers",
+      "license": "Apache-2.0",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=aca4d95fce4914b3892661bcb80b8087293536c6",
+      "name": "python3.13-transformers-5.3.0",
+      "pname": "transformers",
+      "rev": "aca4d95fce4914b3892661bcb80b8087293536c6",
+      "rev_count": 958961,
+      "rev_date": "2026-03-06T04:56:59Z",
+      "scrape_date": "2026-03-10T22:00:08.815128513Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "5.3.0",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "dist": "/nix/store/v1wdihiikialr04zqq8lfh2razi9fmwh-python3.13-transformers-5.3.0-dist",
+        "out": "/nix/store/40y8plzk3kn94wgpw9ibnig499pjsqhb-python3.13-transformers-5.3.0"
+      },
+      "system": "aarch64-linux",
+      "group": "transformers",
+      "priority": 5
+    },
+    {
+      "attr_path": "python3Packages.transformers",
+      "broken": false,
+      "derivation": "/nix/store/32abrsi8s20ma66hi1q92inihv6192cz-python3.13-transformers-5.3.0.drv",
+      "description": "Natural Language Processing for TensorFlow 2.0 and PyTorch",
+      "install_id": "transformers",
+      "license": "Apache-2.0",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=aca4d95fce4914b3892661bcb80b8087293536c6",
+      "name": "python3.13-transformers-5.3.0",
+      "pname": "transformers",
+      "rev": "aca4d95fce4914b3892661bcb80b8087293536c6",
+      "rev_count": 958961,
+      "rev_date": "2026-03-06T04:56:59Z",
+      "scrape_date": "2026-03-10T22:00:08.815128883Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "5.3.0",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "dist": "/nix/store/7fcc0hywnxgffvs6p0inmhpgdsxc1p3x-python3.13-transformers-5.3.0-dist",
+        "out": "/nix/store/my5xwx8w7fmzqdqy36hdisb8cs2c9sk1-python3.13-transformers-5.3.0"
+      },
+      "system": "x86_64-linux",
+      "group": "transformers",
+      "priority": 5
+    },
+    {
+      "attr_path": "python3Packages.vllm",
+      "broken": false,
+      "derivation": "/nix/store/2148pqyg9vbv408rg8wbwdahlqz814hj-python3.13-vllm-0.15.1.drv",
+      "description": "High-throughput and memory-efficient inference and serving engine for LLMs",
+      "install_id": "vllm",
+      "license": "Apache-2.0",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=9dcb002ca1690658be4a04645215baea8b95f31d",
+      "name": "python3.13-vllm-0.15.1",
+      "pname": "vllm",
+      "rev": "9dcb002ca1690658be4a04645215baea8b95f31d",
+      "rev_count": 960399,
+      "rev_date": "2026-03-08T09:52:19Z",
+      "scrape_date": "2026-03-10T22:00:08.815136445Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "0.15.1",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "dist": "/nix/store/263gfwbgnv562kij0v24yxiam9haqzmp-python3.13-vllm-0.15.1-dist",
+        "out": "/nix/store/m7f0g7qnlijhgm8fsadv7lkmn090bv9s-python3.13-vllm-0.15.1"
+      },
+      "system": "x86_64-linux",
+      "group": "vllm",
       "priority": 5
     },
     {
@@ -251,6 +426,39 @@
       ],
       "outputs": {
         "out": "/nix/store/fysq4digrp7zdpfbw0xmhk4bnp8w13rj-bats-1.12.0"
+      },
+      "system": "x86_64-linux",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "iproute2",
+      "broken": false,
+      "derivation": "/nix/store/723fhsmc3ixg2rx52rjbjyhssmqysg0a-iproute2-6.18.0.drv",
+      "description": "Collection of utilities for controlling TCP/IP networking and traffic control in Linux",
+      "install_id": "iproute2",
+      "license": "GPL-2.0-only",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=2fc6539b481e1d2569f25f8799236694180c0993",
+      "name": "iproute2-6.18.0",
+      "pname": "iproute2",
+      "rev": "2fc6539b481e1d2569f25f8799236694180c0993",
+      "rev_count": 953160,
+      "rev_date": "2026-02-23T12:05:20Z",
+      "scrape_date": "2026-02-25T07:00:32.370175Z",
+      "stabilities": [
+        "unstable",
+        "staging",
+        "stable"
+      ],
+      "unfree": false,
+      "version": "6.18.0",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "dev": "/nix/store/wnb7jzdv9qzr8csdrdalf5nss1xh1n0l-iproute2-6.18.0-dev",
+        "out": "/nix/store/c9bn9jz0f89hhy5n1m7k4svlb79i33r5-iproute2-6.18.0",
+        "scripts": "/nix/store/9bg7pidbd2yyfdd7b1b57g2r08hv94cw-iproute2-6.18.0-scripts"
       },
       "system": "x86_64-linux",
       "group": "toplevel",
@@ -413,7 +621,7 @@
       "rev": "3fe4183645d01cfb6aa022eabbd880c2dc0c2218",
       "rev_count": 11,
       "rev_date": "2026-03-10T17:59:34Z",
-      "scrape_date": "2026-03-10T22:00:08.815121472Z",
+      "scrape_date": "2026-03-11T00:19:55.699883003Z",
       "stabilities": [
         "unstable",
         "staging",
@@ -444,7 +652,7 @@
       "rev": "3fe4183645d01cfb6aa022eabbd880c2dc0c2218",
       "rev_count": 11,
       "rev_date": "2026-03-10T17:59:34Z",
-      "scrape_date": "2026-03-10T22:00:08.815121823Z",
+      "scrape_date": "2026-03-11T00:19:55.699883374Z",
       "stabilities": [
         "unstable",
         "staging",
@@ -475,7 +683,7 @@
       "rev": "6c3c70d3524a8cd4fb71509e2d57a90308c5df70",
       "rev_count": 13,
       "rev_date": "2026-03-10T21:48:25Z",
-      "scrape_date": "2026-03-10T22:00:08.815122133Z",
+      "scrape_date": "2026-03-11T00:19:55.699883775Z",
       "stabilities": [
         "unstable",
         "staging",
@@ -494,161 +702,45 @@
       "priority": 5
     },
     {
-      "attr_path": "python3Packages.torch",
+      "attr_path": "util-linux",
       "broken": false,
-      "derivation": "/nix/store/nwm0rchw4093kvqlms11y1aairir5764-python3.13-torch-2.10.0.drv",
-      "description": "PyTorch: Tensors and Dynamic neural networks in Python with strong GPU acceleration",
-      "install_id": "torch",
-      "license": "BSD-3-Clause",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=80bdc1e5ce51f56b19791b52b2901187931f5353",
-      "name": "python3.13-torch-2.10.0",
-      "pname": "torchWithCuda",
-      "rev": "80bdc1e5ce51f56b19791b52b2901187931f5353",
-      "rev_count": 958232,
-      "rev_date": "2026-03-04T11:34:51Z",
-      "scrape_date": "2026-03-10T22:00:08.815125609Z",
+      "derivation": "/nix/store/gkyzhkc0j3akapxbcfa544xfib8mjpgj-util-linux-2.41.3.drv",
+      "description": "Set of system utilities for Linux",
+      "install_id": "util-linux",
+      "license": "[ GPL-2.0-only, GPL-2.0-or-later, GPL-3.0-or-later, LGPL-2.1-or-later, BSD-3-Clause, BSD-4-Clause-UC, Public Domain ]",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=2fc6539b481e1d2569f25f8799236694180c0993",
+      "name": "util-linux-2.41.3",
+      "pname": "util-linux",
+      "rev": "2fc6539b481e1d2569f25f8799236694180c0993",
+      "rev_count": 953160,
+      "rev_date": "2026-02-23T12:05:20Z",
+      "scrape_date": "2026-02-25T07:03:33.896613Z",
       "stabilities": [
         "unstable",
-        "staging"
+        "staging",
+        "stable"
       ],
       "unfree": false,
-      "version": "python3.13-torch-2.10.0",
+      "version": "2.41.3",
       "outputs_to_install": [
-        "out"
+        "bin",
+        "bin",
+        "man"
       ],
       "outputs": {
-        "cxxdev": "/nix/store/bx586ggq829y187fsplqz714rnc62vfp-python3.13-torch-2.10.0-cxxdev",
-        "dev": "/nix/store/zhdrxf05gvq2z9hf5sm3ljvfk83pk85z-python3.13-torch-2.10.0-dev",
-        "dist": "/nix/store/v8g8smg770x35hf741kxrqjx6rxkc1z8-python3.13-torch-2.10.0-dist",
-        "lib": "/nix/store/qhj37yv8rl6qsp4d9axrjajiffbzb0sg-python3.13-torch-2.10.0-lib",
-        "out": "/nix/store/fcca5sw5xzwhhszvn7nl0bjky6kvbr8j-python3.13-torch-2.10.0"
-      },
-      "system": "aarch64-linux",
-      "group": "torch",
-      "priority": 5
-    },
-    {
-      "attr_path": "python3Packages.torch",
-      "broken": false,
-      "derivation": "/nix/store/2kbx0idfiaq5dj6ds3nj8bv3fgf173vf-python3.13-torch-2.10.0.drv",
-      "description": "PyTorch: Tensors and Dynamic neural networks in Python with strong GPU acceleration",
-      "install_id": "torch",
-      "license": "BSD-3-Clause",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=80bdc1e5ce51f56b19791b52b2901187931f5353",
-      "name": "python3.13-torch-2.10.0",
-      "pname": "torchWithCuda",
-      "rev": "80bdc1e5ce51f56b19791b52b2901187931f5353",
-      "rev_count": 958232,
-      "rev_date": "2026-03-04T11:34:51Z",
-      "scrape_date": "2026-03-10T22:00:08.815126610Z",
-      "stabilities": [
-        "unstable",
-        "staging"
-      ],
-      "unfree": false,
-      "version": "python3.13-torch-2.10.0",
-      "outputs_to_install": [
-        "out"
-      ],
-      "outputs": {
-        "cxxdev": "/nix/store/jr9vdkd936d8qb2r0mcpdi5f5ibhb0v6-python3.13-torch-2.10.0-cxxdev",
-        "dev": "/nix/store/gpjc38p1lb5jibib6mzz1hxrd60h212w-python3.13-torch-2.10.0-dev",
-        "dist": "/nix/store/zs3dvq0v52674zrc9nlgm0z3s2ysq4ab-python3.13-torch-2.10.0-dist",
-        "lib": "/nix/store/s5x8dmjajixh6ar9mlsw5y13qg9absyz-python3.13-torch-2.10.0-lib",
-        "out": "/nix/store/0l4jhb8g6ygwnhiivv8i14xnlj7y4lw2-python3.13-torch-2.10.0"
+        "bin": "/nix/store/ilk5qzvkadnj7lx58hfinfvl7jmhriq6-util-linux-2.41.3-bin",
+        "debug": "/nix/store/h1alr7b0r4whfcgjcz6470zcn0zaaf8k-util-linux-2.41.3-debug",
+        "dev": "/nix/store/k0rhbhlsbi3g2wmgsjshjg2k4kp4r22p-util-linux-2.41.3-dev",
+        "lastlog": "/nix/store/cax4mci827xmsdi0sy0agd5jjlckw95y-util-linux-2.41.3-lastlog",
+        "lib": "/nix/store/db6sbfmg9zb4g1v77kwpd4waq0ij55nd-util-linux-2.41.3-lib",
+        "login": "/nix/store/51q6y1n2q6illbgqlm5fkhs8hc06rbjf-util-linux-2.41.3-login",
+        "man": "/nix/store/ip5rmycc2shxfr3jnzgcmmzah3ickdj8-util-linux-2.41.3-man",
+        "mount": "/nix/store/8c2ly0rd4bh2cqbq5rainxchvcn56pq0-util-linux-2.41.3-mount",
+        "out": "/nix/store/vcwnqdg2aa8gyvizl7s4q12j6hy19172-util-linux-2.41.3",
+        "swap": "/nix/store/7kfa6vaj8f0kihbx6fqsam327yr5zpcj-util-linux-2.41.3-swap"
       },
       "system": "x86_64-linux",
-      "group": "torch",
-      "priority": 5
-    },
-    {
-      "attr_path": "python3Packages.transformers",
-      "broken": false,
-      "derivation": "/nix/store/m74npsf6jk9yrnj9jwrg7j419rkh9bdz-python3.13-transformers-5.3.0.drv",
-      "description": "Natural Language Processing for TensorFlow 2.0 and PyTorch",
-      "install_id": "transformers",
-      "license": "Apache-2.0",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=aca4d95fce4914b3892661bcb80b8087293536c6",
-      "name": "python3.13-transformers-5.3.0",
-      "pname": "transformers",
-      "rev": "aca4d95fce4914b3892661bcb80b8087293536c6",
-      "rev_count": 958961,
-      "rev_date": "2026-03-06T04:56:59Z",
-      "scrape_date": "2026-03-10T22:00:08.815128513Z",
-      "stabilities": [
-        "unstable"
-      ],
-      "unfree": false,
-      "version": "5.3.0",
-      "outputs_to_install": [
-        "out"
-      ],
-      "outputs": {
-        "dist": "/nix/store/v1wdihiikialr04zqq8lfh2razi9fmwh-python3.13-transformers-5.3.0-dist",
-        "out": "/nix/store/40y8plzk3kn94wgpw9ibnig499pjsqhb-python3.13-transformers-5.3.0"
-      },
-      "system": "aarch64-linux",
-      "group": "transformers",
-      "priority": 5
-    },
-    {
-      "attr_path": "python3Packages.transformers",
-      "broken": false,
-      "derivation": "/nix/store/32abrsi8s20ma66hi1q92inihv6192cz-python3.13-transformers-5.3.0.drv",
-      "description": "Natural Language Processing for TensorFlow 2.0 and PyTorch",
-      "install_id": "transformers",
-      "license": "Apache-2.0",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=aca4d95fce4914b3892661bcb80b8087293536c6",
-      "name": "python3.13-transformers-5.3.0",
-      "pname": "transformers",
-      "rev": "aca4d95fce4914b3892661bcb80b8087293536c6",
-      "rev_count": 958961,
-      "rev_date": "2026-03-06T04:56:59Z",
-      "scrape_date": "2026-03-10T22:00:08.815128883Z",
-      "stabilities": [
-        "unstable"
-      ],
-      "unfree": false,
-      "version": "5.3.0",
-      "outputs_to_install": [
-        "out"
-      ],
-      "outputs": {
-        "dist": "/nix/store/7fcc0hywnxgffvs6p0inmhpgdsxc1p3x-python3.13-transformers-5.3.0-dist",
-        "out": "/nix/store/my5xwx8w7fmzqdqy36hdisb8cs2c9sk1-python3.13-transformers-5.3.0"
-      },
-      "system": "x86_64-linux",
-      "group": "transformers",
-      "priority": 5
-    },
-    {
-      "attr_path": "python3Packages.vllm",
-      "broken": false,
-      "derivation": "/nix/store/2148pqyg9vbv408rg8wbwdahlqz814hj-python3.13-vllm-0.15.1.drv",
-      "description": "High-throughput and memory-efficient inference and serving engine for LLMs",
-      "install_id": "vllm",
-      "license": "Apache-2.0",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=9dcb002ca1690658be4a04645215baea8b95f31d",
-      "name": "python3.13-vllm-0.15.1",
-      "pname": "vllm",
-      "rev": "9dcb002ca1690658be4a04645215baea8b95f31d",
-      "rev_count": 960399,
-      "rev_date": "2026-03-08T09:52:19Z",
-      "scrape_date": "2026-03-10T22:00:08.815136445Z",
-      "stabilities": [
-        "unstable"
-      ],
-      "unfree": false,
-      "version": "0.15.1",
-      "outputs_to_install": [
-        "out"
-      ],
-      "outputs": {
-        "dist": "/nix/store/263gfwbgnv562kij0v24yxiam9haqzmp-python3.13-vllm-0.15.1-dist",
-        "out": "/nix/store/m7f0g7qnlijhgm8fsadv7lkmn090bv9s-python3.13-vllm-0.15.1"
-      },
-      "system": "x86_64-linux",
-      "group": "vllm",
+      "group": "toplevel",
       "priority": 5
     }
   ]
