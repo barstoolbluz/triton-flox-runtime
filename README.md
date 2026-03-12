@@ -1,12 +1,12 @@
 # Triton Inference Server Runtime
 
-Production NVIDIA Triton Inference Server deployment as a Flox environment. Serves model repositories (TensorRT, TensorRT-LLM, ONNX, PyTorch, TensorFlow, Python, vLLM backends) via `tritonserver` with GPU acceleration and multi-port serving (HTTP, gRPC, metrics).
+Production NVIDIA Triton Inference Server deployment as a Flox environment. Ships with five backends: **Python**, **ONNX Runtime**, **vLLM**, **TensorRT**, and **TensorRT-LLM**. GPU-accelerated multi-port serving (HTTP, gRPC, metrics).
 
 - **Triton Inference Server**: v2.66.0 (built from source via Nix)
 - **CUDA**: requires NVIDIA driver with CUDA support
 - **Platform**: Linux only (`/proc` required for preflight)
 
-Unlike the llama.cpp runtime (which serves single GGUF files), Triton serves model *repositories* -- directories containing versioned subdirectories with backend-specific artifacts and optional `config.pbtxt` files. Triton exposes its own HTTP, gRPC, and Prometheus metrics APIs; this runtime handles operational lifecycle: port reclaim, model provisioning, environment validation, and process management.
+Triton serves model *repositories* -- directories containing versioned subdirectories with backend-specific artifacts and optional `config.pbtxt` files. It exposes HTTP, gRPC, and Prometheus metrics APIs; this runtime handles operational lifecycle: port reclaim, model provisioning, environment validation, and process management.
 
 ## Quick start
 
