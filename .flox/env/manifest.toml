@@ -15,15 +15,15 @@ version = 1
 ##  $ flox show gum     <- show all versions of a package
 ## -------------------------------------------------------------------
 [install]
-triton-server.pkg-path = "meetrlyio/triton-server"
+triton-server.pkg-path = "flox/triton-server"
 triton-server.systems = ["x86_64-linux"]
-triton-python-backend.pkg-path = "meetrlyio/triton-python-backend"
+triton-python-backend.pkg-path = "flox/triton-python-backend"
 triton-python-backend.systems = ["x86_64-linux"]
 triton-python-backend.priority = 4
-triton-onnxruntime-backend.pkg-path = "meetrlyio/triton-onnxruntime-backend"
+triton-onnxruntime-backend.pkg-path = "flox/triton-onnxruntime-backend"
 triton-onnxruntime-backend.systems = ["x86_64-linux"]
 triton-onnxruntime-backend.priority = 5
-triton-tensorrt-backend.pkg-path = "meetrlyio/triton-tensorrt-backend"
+triton-tensorrt-backend.pkg-path = "flox/triton-tensorrt-backend"
 triton-tensorrt-backend.systems = ["x86_64-linux"]
 triton-tensorrt-backend.priority = 6
 triton-tensorrtllm-backend.pkg-path = "flox/triton-tensorrtllm-backend"

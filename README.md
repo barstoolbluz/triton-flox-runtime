@@ -88,7 +88,7 @@ chained separately.
 │  Environment (.flox/env/manifest.toml)                    │
 │                                                          │
 │  [install]                                               │
-│    triton-server (meetrlyio)    # server + scripts       │
+│    triton-server (flox)         # server + scripts       │
 │    triton-python-backend        # Python backend .so     │
 │    triton-onnxruntime-backend   # ONNX Runtime backend   │
 │    triton-tensorrt-backend      # TensorRT backend       │
@@ -147,7 +147,7 @@ $TRITON_MODEL_REPOSITORY/
 | `python` | `model.py` | Python backend script |
 | `vllm` | `model.json` | vLLM configuration file |
 
-**TensorRT-LLM model conversion:** Converting HuggingFace models to TRT-LLM engine format requires the `tensorrt_llm` Python package (Python 3.12), which is not available in this environment. This runtime handles *serving* TRT-LLM engines; model conversion is a separate step requiring a dedicated environment or the NGC container.
+**TensorRT-LLM model conversion:** Converting HuggingFace models to TRT-LLM engine format requires the `tensorrt_llm` Python package (Python 3.12), which is not available in this environment. Use the [triton-trtllm-tools](../triton-trtllm-tools/) environment for model conversion. This runtime handles *serving* TRT-LLM engines; conversion is a separate concern.
 
 ### Version directories
 
@@ -874,17 +874,17 @@ backend is a subdirectory containing a shared library (`libtriton_<name>.so`).
 The server and compiled backends (Python, ONNX Runtime, TensorRT, TensorRT-LLM) are
 built from source (or extracted from NGC containers) via Nix expressions in a separate
 build repository ([build-triton-server](../builds/build-triton-server/)). The resulting
-packages are published to the `meetrlyio` Flox catalog and referenced in `manifest.toml`
+packages are published to the `flox` Flox catalog and referenced in `manifest.toml`
 via `pkg-path`:
 
 ```toml
 # .flox/env/manifest.toml
 [install]
-triton-server.pkg-path = "meetrlyio/triton-server"
-triton-python-backend.pkg-path = "meetrlyio/triton-python-backend"
-triton-onnxruntime-backend.pkg-path = "meetrlyio/triton-onnxruntime-backend"
-triton-tensorrt-backend.pkg-path = "meetrlyio/triton-tensorrt-backend"
-triton-tensorrtllm-backend.pkg-path = "meetrlyio/triton-tensorrtllm-backend"
+triton-server.pkg-path = "flox/triton-server"
+triton-python-backend.pkg-path = "flox/triton-python-backend"
+triton-onnxruntime-backend.pkg-path = "flox/triton-onnxruntime-backend"
+triton-tensorrt-backend.pkg-path = "flox/triton-tensorrt-backend"
+triton-tensorrtllm-backend.pkg-path = "flox/triton-tensorrtllm-backend"
 ```
 
 ### Nixpkgs-provided packages
@@ -928,10 +928,10 @@ var setup is needed.
 
 | Backend | Package | Library |
 |---------|---------|---------|
-| Python | `meetrlyio/triton-python-backend` | `backends/python/libtriton_python.so` |
-| ONNX Runtime | `meetrlyio/triton-onnxruntime-backend` | `backends/onnxruntime/libtriton_onnxruntime.so` |
-| TensorRT | `meetrlyio/triton-tensorrt-backend` | `backends/tensorrt/libtriton_tensorrt.so` |
-| TensorRT-LLM | `meetrlyio/triton-tensorrtllm-backend` | `backends/tensorrtllm/libtriton_tensorrtllm.so` |
+| Python | `flox/triton-python-backend` | `backends/python/libtriton_python.so` |
+| ONNX Runtime | `flox/triton-onnxruntime-backend` | `backends/onnxruntime/libtriton_onnxruntime.so` |
+| TensorRT | `flox/triton-tensorrt-backend` | `backends/tensorrt/libtriton_tensorrt.so` |
+| TensorRT-LLM | `flox/triton-tensorrtllm-backend` | `backends/tensorrtllm/libtriton_tensorrtllm.so` |
 | vLLM | (pure Python, repo-local) | `backends/vllm/model.py` + Python backend stub |
 
 The ONNX Runtime backend loads `libonnxruntime.so` (ORT 1.24.2) from its Nix store

@@ -40,27 +40,27 @@
         ]
       },
       "triton-onnxruntime-backend": {
-        "pkg-path": "meetrlyio/triton-onnxruntime-backend",
+        "pkg-path": "flox/triton-onnxruntime-backend",
         "priority": 5,
         "systems": [
           "x86_64-linux"
         ]
       },
       "triton-python-backend": {
-        "pkg-path": "meetrlyio/triton-python-backend",
+        "pkg-path": "flox/triton-python-backend",
         "priority": 4,
         "systems": [
           "x86_64-linux"
         ]
       },
       "triton-server": {
-        "pkg-path": "meetrlyio/triton-server",
+        "pkg-path": "flox/triton-server",
         "systems": [
           "x86_64-linux"
         ]
       },
       "triton-tensorrt-backend": {
-        "pkg-path": "meetrlyio/triton-tensorrt-backend",
+        "pkg-path": "flox/triton-tensorrt-backend",
         "priority": 6,
         "systems": [
           "x86_64-linux"
@@ -629,13 +629,13 @@
       "description": "ONNX Runtime backend for NVIDIA Triton Inference Server",
       "install_id": "triton-onnxruntime-backend",
       "license": "BSD-3-Clause",
-      "locked_url": "git@github.com:barstoolbluz/build-triton-server.git?rev=3fe4183645d01cfb6aa022eabbd880c2dc0c2218",
+      "locked_url": "git@github.com:barstoolbluz/build-triton-server.git?rev=c3da7fb40018681c0918a1d4c08ed248a919e5df",
       "name": "triton-onnxruntime-backend-2.66.0",
       "pname": "triton-onnxruntime-backend",
-      "rev": "3fe4183645d01cfb6aa022eabbd880c2dc0c2218",
-      "rev_count": 11,
-      "rev_date": "2026-03-10T17:59:34Z",
-      "scrape_date": "2026-03-11T23:41:16.865165220Z",
+      "rev": "c3da7fb40018681c0918a1d4c08ed248a919e5df",
+      "rev_count": 24,
+      "rev_date": "2026-03-12T00:06:21Z",
+      "scrape_date": "2026-03-12T00:12:40.187623111Z",
       "stabilities": [
         "unstable",
         "staging",
@@ -660,13 +660,13 @@
       "description": "Python backend for NVIDIA Triton Inference Server",
       "install_id": "triton-python-backend",
       "license": "BSD-3-Clause",
-      "locked_url": "git@github.com:barstoolbluz/build-triton-server.git?rev=3fe4183645d01cfb6aa022eabbd880c2dc0c2218",
+      "locked_url": "git@github.com:barstoolbluz/build-triton-server.git?rev=c3da7fb40018681c0918a1d4c08ed248a919e5df",
       "name": "triton-python-backend-2.66.0",
       "pname": "triton-python-backend",
-      "rev": "3fe4183645d01cfb6aa022eabbd880c2dc0c2218",
-      "rev_count": 11,
-      "rev_date": "2026-03-10T17:59:34Z",
-      "scrape_date": "2026-03-11T23:41:16.865166421Z",
+      "rev": "c3da7fb40018681c0918a1d4c08ed248a919e5df",
+      "rev_count": 24,
+      "rev_date": "2026-03-12T00:06:21Z",
+      "scrape_date": "2026-03-12T00:12:40.187624083Z",
       "stabilities": [
         "unstable",
         "staging",
@@ -691,13 +691,13 @@
       "description": "NVIDIA Triton Inference Server",
       "install_id": "triton-server",
       "license": "BSD-3-Clause",
-      "locked_url": "git@github.com:barstoolbluz/build-triton-server.git?rev=6c3c70d3524a8cd4fb71509e2d57a90308c5df70",
+      "locked_url": "git@github.com:barstoolbluz/build-triton-server.git?rev=c3da7fb40018681c0918a1d4c08ed248a919e5df",
       "name": "triton-server-2.66.0",
       "pname": "triton-server",
-      "rev": "6c3c70d3524a8cd4fb71509e2d57a90308c5df70",
-      "rev_count": 13,
-      "rev_date": "2026-03-10T21:48:25Z",
-      "scrape_date": "2026-03-11T23:41:16.865167182Z",
+      "rev": "c3da7fb40018681c0918a1d4c08ed248a919e5df",
+      "rev_count": 24,
+      "rev_date": "2026-03-12T00:06:21Z",
+      "scrape_date": "2026-03-12T00:12:40.187624814Z",
       "stabilities": [
         "unstable",
         "staging",
@@ -722,13 +722,13 @@
       "description": "TensorRT backend for NVIDIA Triton Inference Server",
       "install_id": "triton-tensorrt-backend",
       "license": "BSD-3-Clause",
-      "locked_url": "git@github.com:barstoolbluz/build-triton-server.git?rev=45ed363feb041e836577d3563fcc84d59b14cdd4",
+      "locked_url": "git@github.com:barstoolbluz/build-triton-server.git?rev=c3da7fb40018681c0918a1d4c08ed248a919e5df",
       "name": "triton-tensorrt-backend-2.66.0",
       "pname": "triton-tensorrt-backend",
-      "rev": "45ed363feb041e836577d3563fcc84d59b14cdd4",
-      "rev_count": 15,
-      "rev_date": "2026-03-11T02:52:29Z",
-      "scrape_date": "2026-03-11T23:41:16.865167974Z",
+      "rev": "c3da7fb40018681c0918a1d4c08ed248a919e5df",
+      "rev_count": 24,
+      "rev_date": "2026-03-12T00:06:21Z",
+      "scrape_date": "2026-03-12T00:12:40.187625755Z",
       "stabilities": [
         "unstable",
         "staging",
@@ -759,7 +759,7 @@
       "rev": "c205bb720e61a0487eb744be28c82a340dd0a23c",
       "rev_count": 18,
       "rev_date": "2026-03-11T15:36:26Z",
-      "scrape_date": "2026-03-11T23:41:16.865168665Z",
+      "scrape_date": "2026-03-12T00:12:40.187626456Z",
       "stabilities": [
         "unstable",
         "staging",
