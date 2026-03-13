@@ -93,11 +93,16 @@ chained separately.
 │    triton-onnxruntime-backend   # ONNX Runtime backend   │
 │    triton-tensorrt-backend      # TensorRT backend       │
 │    triton-tensorrtllm-backend   # TensorRT-LLM backend   │
+│    triton-model-*               # Model packages (opt.)  │
 │    util-linux                   # flock (preflight)      │
 │    iproute2                     # ss (port scanning)     │
 │    vllm, torch, numpy, ...      # Python ML packages     │
 │                                                          │
 │  ┌────────────────────────────────────────────────────┐  │
+│  │  on-activate (flox activate)                       │  │
+│  │    triton-setup-backends  → $FLOX_ENV_CACHE/backends│  │
+│  │    triton-setup-models    → $FLOX_ENV_CACHE/models  │  │
+│  ├────────────────────────────────────────────────────┤  │
 │  │  triton-resolve-model                              │  │
 │  │    Sources: flox → local → r2 → hf-hub             │  │
 │  │    Layout validation: version dirs + artifacts     │  │
@@ -246,7 +251,7 @@ TRITON_HTTP_PORT=9000 TRITON_LOG_VERBOSE=1 flox activate --start-services
 | `TRITON_RESOLVE_NETWORK_TIMEOUT` | `900` | Per-attempt timeout in seconds |
 | `TRITON_RESOLVE_RETRY_SLEEP` | `2` | Sleep seconds between retries |
 | `TRITON_KEEP_LOGS` | `0` | `1` to keep download logs on success (always kept on failure) |
-| `TRITON_MODEL_STATE_DIR` | _(auto)_ | State directory for env/lock/provenance files. Fallback chain: env file directory → `$FLOX_ENV_CACHE` → `$TRITON_MODEL_REPOSITORY/.triton-resolve-state` |
+| `TRITON_MODEL_STATE_DIR` | _(auto)_ | State directory for env/lock/provenance files. Fallback chain: env file directory → `$FLOX_ENV_CACHE` → `${XDG_CACHE_HOME:-$HOME/.cache}/triton-resolve` |
 | `TRITON_DEEP_VALIDATE` | `1` | Run deeper validation (ONNX integrity, PyTorch format, TensorFlow structure, Python syntax, vLLM JSON) |
 | `TRITON_STRICT_DEEP_VALIDATION` | `0` | Fail if a deep validator is unavailable (e.g., `onnx` Python module not installed) |
 | `TRITON_PUBLISH_STRATEGY` | `symlink-store` | Publishing strategy: `symlink-store` or `replace-dir` |
@@ -373,14 +378,14 @@ TRITON_MODEL_SOURCES=local,hf-cache flox activate --start-services  # local + ca
 ### Locking and atomic swap
 
 - **Per-model lock**: acquired before any source search. Lock file: `$TRITON_MODEL_STATE_DIR/triton-model.<slug>.<hash>.lock`. Timeout: `TRITON_RESOLVE_LOCK_TIMEOUT` seconds (default 300). Locking is performed by a background Python helper that uses `fcntl.flock()` with bounded polling (50 ms intervals) and sets `PR_SET_PDEATHSIG` so the lock is released if the parent shell dies. Symlink and regular-file checks are enforced before opening.
-- **Atomic swap** (r2 and hf-hub only): downloads stage into a temp directory under `$TRITON_MODEL_REPOSITORY/.staging/`. After layout validation, the staged directory is published via the configured `TRITON_PUBLISH_STRATEGY` (see [Publishing strategies](#publishing-strategies)). If a `replace-dir` swap is interrupted, `lib::restore_backup` recovers the most recent backup on the next run.
+- **Atomic swap** (r2 and hf-hub only): downloads stage into a temp directory under `$TRITON_MODEL_STATE_DIR/.staging/`. After layout validation, the staged directory is published via the configured `TRITON_PUBLISH_STRATEGY` (see [Publishing strategies](#publishing-strategies)). If a `replace-dir` swap is interrupted, `lib::restore_backup` recovers the most recent backup on the next run.
 - **Staging cleanup**: staging directories and download logs are cleaned up on success. On failure, logs are preserved for debugging.
 
 ### Publishing strategies
 
 After a model is downloaded and validated, it is published into the target directory using one of two strategies controlled by `TRITON_PUBLISH_STRATEGY`:
 
-**`symlink-store`** (default): model content is stored by content manifest SHA under `$TRITON_MODEL_REPOSITORY/.published/<model>/<sha>/`. The target directory (`$TRITON_MODEL_REPOSITORY/$TRITON_MODEL`) becomes a relative symlink pointing into the store. Benefits:
+**`symlink-store`** (default): model content is stored by content manifest SHA under `$TRITON_MODEL_STATE_DIR/.published/<model>/<sha>/`. The target directory (`$TRITON_MODEL_REPOSITORY/$TRITON_MODEL`) becomes a relative symlink pointing into the store. Benefits:
 
 - **Deduplication**: identical content (same SHA) is stored once regardless of how many times it is downloaded.
 - **Atomic symlink swap**: updating the target is a single `mv -T` of a temporary symlink, so readers never see a partially-written directory.
@@ -814,7 +819,7 @@ Common R2 issues:
 - Invalid AWS/R2 credentials (`aws sts get-caller-identity` fails).
 - Wrong `R2_ENDPOINT_URL` for the storage provider.
 
-Check staging logs (preserved on failure) at `$TRITON_MODEL_REPOSITORY/.staging/`.
+Check staging logs (preserved on failure) at `$TRITON_MODEL_STATE_DIR/.staging/`.
 
 ### OpenAI frontend main.py not found
 
@@ -845,7 +850,7 @@ If a previous run was killed mid-operation:
 rm -f /tmp/triton-preflight.lock
 
 # For triton-resolve-model (per-model lock)
-# Default state dir is $FLOX_ENV_CACHE, or $TRITON_MODEL_REPOSITORY/.triton-resolve-state
+# Default state dir is $FLOX_ENV_CACHE, or ${XDG_CACHE_HOME:-$HOME/.cache}/triton-resolve
 rm -f "$TRITON_MODEL_STATE_DIR"/triton-model.*.lock
 ```
 
@@ -885,6 +890,10 @@ triton-python-backend.pkg-path = "flox/triton-python-backend"
 triton-onnxruntime-backend.pkg-path = "flox/triton-onnxruntime-backend"
 triton-tensorrt-backend.pkg-path = "flox/triton-tensorrt-backend"
 triton-tensorrtllm-backend.pkg-path = "flox/triton-tensorrtllm-backend"
+
+# Model packages (optional — Tier 1 model discovery by triton-setup-models)
+triton-model-qwen2-5-05b-trtllm.pkg-path = "flox/triton-model-qwen2-5-05b-trtllm"
+triton-model-qwen2-5-05b-trtllm.pkg-group = "trtllm-models"
 ```
 
 ### Nixpkgs-provided packages
@@ -938,7 +947,34 @@ The ONNX Runtime backend loads `libonnxruntime.so` (ORT 1.24.2) from its Nix sto
 RPATH automatically -- no need to copy ORT libraries into the backend directory.
 The TensorRT backend similarly loads the TRT SDK via RPATH. The TensorRT-LLM backend
 bundles its own runtime libraries (TRT-LLM, CUDA 13.x, NCCL) with `$ORIGIN`-relative
-RPATHs for SONAME isolation from the system's CUDA 12.x.
+RPATHs for SONAME isolation from the system's CUDA 12.x. The TRT-LLM backend also
+requires MPI — the on-activate hook auto-resolves `OPAL_PREFIX` from the backend's
+`hpcx/ompi/` directory and prepends its `lib/` to `LD_LIBRARY_PATH`.
+
+### Model directory setup
+
+Model assembly is handled by `triton-setup-models` (bundled in the `triton-server`
+package), which runs during `flox activate` alongside `triton-setup-backends`. It builds
+a model directory at `$FLOX_ENV_CACHE/models/`:
+
+- **Tier 1** (package-provided): Each model directory under `$FLOX_ENV/share/models/` is
+  copied into the cache. These are Nix-store model packages (e.g.,
+  `triton-model-qwen2-5-05b-trtllm`) installed via the Flox catalog. If a model contains
+  `config.pbtxt.template`, token placeholders are expanded and the result is written as
+  `config.pbtxt`.
+- **Tier 2** (repo-local): Each directory in `$FLOX_ENV_PROJECT/models/` that was not
+  already handled by Tier 1 is symlinked into the cache.
+
+**Template token expansion**: `config.pbtxt.template` files support three tokens:
+
+| Token | Expanded to |
+|-------|-------------|
+| `@EXECUTOR_WORKER_PATH@` | `$TRITON_BACKEND_DIR/tensorrtllm/trtllmExecutorWorker` |
+| `@GPT_MODEL_PATH@` | `$FLOX_ENV_CACHE/models/<name>/engine` |
+| `@TOKENIZER_DIR@` | `$FLOX_ENV_CACHE/models/<name>/tokenizer` |
+
+The hook exports `TRITON_MODEL_REPOSITORY` pointing to the assembled model directory
+if model packages are present.
 
 ### ONNX Runtime backend details
 
@@ -1104,11 +1140,18 @@ triton-runtime/
   #   tensorrt/     -> $FLOX_ENV/backends/tensorrt/      (Tier 1, from catalog)
   #   tensorrtllm/  -> $FLOX_ENV/backends/tensorrtllm/   (Tier 1, from catalog)
   #   vllm/         -> per-file symlinks + python stub   (Tier 2, assembled)
+  # At activation, triton-setup-models assembles $FLOX_ENV_CACHE/models/:
+  #   qwen2_5_05b_trtllm/ -> copied + config.pbtxt.template expanded (Tier 1, from catalog)
+  #   vllm_test/          -> $FLOX_ENV_PROJECT/models/vllm_test/     (Tier 2, symlinked)
+  #   onnx_identity/      -> $FLOX_ENV_PROJECT/models/onnx_identity/ (Tier 2, symlinked)
+  #   ...
   scripts/                      # Runtime script sources (also bundled in triton-server package)
     _lib.sh                     # Shared library sourced by the other scripts
     triton-preflight            # Pre-flight validation
     triton-resolve-model        # Multi-source model provisioning
     triton-serve                # Server launcher
+    triton-setup-backends       # Backend directory assembler (activation-time)
+    triton-setup-models         # Model directory assembler (activation-time)
   models/                       # Model repository
     vllm_test/                  # Example vLLM model (facebook/opt-125m)
       config.pbtxt
@@ -1130,11 +1173,17 @@ triton-runtime/
       config.pbtxt
       1/
         model.py
+    tensorrt_identity/          # TensorRT identity test model
+      config.pbtxt
+      1/
+    qwen2_5_05b_trtllm/        # Qwen2.5-0.5B TRT-LLM (config template, engine via model package)
+      config.pbtxt.template
+      1/
   tests/                        # Bats test suite
   README.md
 ```
 
-Scripts (including `triton-setup-backends`) are bundled in the `triton-server` package at `$out/bin/` and available on `PATH` after `flox activate`. Source copies also live in `scripts/` in the [build-triton-server](../builds/build-triton-server/) repo (which is what the Nix build packages).
+Scripts (including `triton-setup-backends` and `triton-setup-models`) are bundled in the `triton-server` package at `$out/bin/` and available on `PATH` after `flox activate`. Source copies also live in `scripts/` in the [build-triton-server](../builds/build-triton-server/) repo (which is what the Nix build packages).
 
 ## Security notes
 
@@ -1150,7 +1199,7 @@ Even in safe mode, the env file can set arbitrary environment variables, so prot
 
 - **Env files**: written with `umask 077` and `chmod 600` -- readable only by the owning user.
 - **Lock files**: created with `umask 077`. Symlink safety is checked before opening (symlinks are rejected; only regular files accepted).
-- **Staging directories**: created under `$TRITON_MODEL_REPOSITORY/.staging/` with restricted permissions.
+- **Staging directories**: created under `$TRITON_MODEL_STATE_DIR/.staging/` with restricted permissions.
 
 ### Model name validation
 
