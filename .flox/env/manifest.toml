@@ -103,6 +103,14 @@ on-activate = '''
   triton-setup-models
   export TRITON_MODEL_REPOSITORY="${TRITON_MODEL_REPOSITORY:-$FLOX_ENV_CACHE/models}"
 
+  # Auto-resolve tokenizer for OpenAI chat templates
+  if [[ -n "${TRITON_MODEL:-}" ]] && [[ -z "${TRITON_OPENAI_TOKENIZER:-}" ]]; then
+    _tokenizer_dir="$TRITON_MODEL_REPOSITORY/$TRITON_MODEL/tokenizer"
+    if [[ -d "$_tokenizer_dir" ]]; then
+      export TRITON_OPENAI_TOKENIZER="$(readlink -f "$_tokenizer_dir")"
+    fi
+  fi
+
   # OpenAI frontend dependencies
   _ts_prefix="$(dirname "$(command -v tritonserver)")/.."
   _openai_main="$_ts_prefix/python/openai/main.py"
@@ -124,6 +132,21 @@ on-activate = '''
       touch "$_openai_sentinel"
     fi
     export PYTHONPATH="${_openai_deps}${PYTHONPATH:+:$PYTHONPATH}"
+
+    # Patch transformers 5.x compat (all_special_tokens_extended removed)
+    _compat_dir="$FLOX_ENV_CACHE/python-compat"
+    if [[ ! -f "$_compat_dir/sitecustomize.py" ]]; then
+      mkdir -p "$_compat_dir"
+      cat > "$_compat_dir/sitecustomize.py" << 'COMPATEOF'
+import transformers.tokenization_utils_base as _tub
+if not hasattr(_tub.PreTrainedTokenizerBase, 'all_special_tokens_extended'):
+    @property
+    def _all_special_tokens_extended(self):
+        return list(self.all_special_tokens)
+    _tub.PreTrainedTokenizerBase.all_special_tokens_extended = _all_special_tokens_extended
+COMPATEOF
+    fi
+    export PYTHONPATH="${_compat_dir}:$PYTHONPATH"
   fi
 '''
 
