@@ -40,7 +40,7 @@
         ]
       },
       "triton-model-phi4-mini-trtllm": {
-        "store-path": "/nix/store/aiarp5s7rs2wkpjv4bqs97h0w8f8fw47-triton-model-phi4-mini-trtllm-0.1.0+b23a5b4",
+        "store-path": "/nix/store/0ryy8l1779irvmmx37f0h9d2hn3839i4-triton-model-phi4-mini-trtllm-0.1.0+199a7d1",
         "systems": [
           "x86_64-linux"
         ]
@@ -123,7 +123,7 @@
   "packages": [
     {
       "install_id": "triton-model-phi4-mini-trtllm",
-      "store_path": "/nix/store/aiarp5s7rs2wkpjv4bqs97h0w8f8fw47-triton-model-phi4-mini-trtllm-0.1.0+b23a5b4",
+      "store_path": "/nix/store/0ryy8l1779irvmmx37f0h9d2hn3839i4-triton-model-phi4-mini-trtllm-0.1.0+199a7d1",
       "system": "x86_64-linux",
       "priority": 5
     },
