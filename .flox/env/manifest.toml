@@ -50,16 +50,16 @@ iproute2.pkg-path = "iproute2"
 iproute2.systems = ["x86_64-linux"]
 uv.pkg-path = "uv"
 
-[vars]
-TRITON_MODEL = "phi4_mini_trtllm"
-TRITON_OPENAI_FRONTEND = "true"
-# Uncomment to serve external TRT-LLM models (each subdir needs engine/ + tokenizer/).
-# Ensemble pipelines are synthesized automatically at activation time.
-# TRITON_LOCAL_MODELS = "/path/to/trtllm-models"
-
-
 [hook]
 on-activate = '''
+  # Runtime defaults — override at activation time, e.g.:
+  #   TRITON_MODEL=my_model flox activate --start-services
+  export TRITON_MODEL="${TRITON_MODEL:-phi4_mini_trtllm}"
+  export TRITON_OPENAI_FRONTEND="${TRITON_OPENAI_FRONTEND:-true}"
+  # Uncomment to serve external TRT-LLM models (each subdir needs engine/ + tokenizer/).
+  # Ensemble pipelines are synthesized automatically at activation time.
+  # export TRITON_LOCAL_MODELS="${TRITON_LOCAL_MODELS:-/path/to/trtllm-models}"
+
   triton-setup-backends
   export TRITON_BACKEND_DIR="$FLOX_ENV_CACHE/backends"
 
