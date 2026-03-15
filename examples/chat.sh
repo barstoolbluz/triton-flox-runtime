@@ -1,6 +1,29 @@
 #!/usr/bin/env bash
 # Interactive chat with the Triton-served model via the OpenAI-compatible API.
 #
+# This script opens an interactive chat session (or sends a single prompt)
+# against a running Triton server's OpenAI-compatible endpoint on port 9000.
+#
+# Prerequisites:
+#   1. You need a running Triton server with the OpenAI frontend enabled.
+#      Open a terminal in the triton-runtime directory and run:
+#
+#        flox activate --start-services
+#
+#      Wait until you see "Started HTTPService at 0.0.0.0:9000" in the logs.
+#      The manifest already sets TRITON_OPENAI_FRONTEND=true by default.
+#
+#   2. This script must be run from a second terminal, also inside the
+#      triton-runtime directory. You need to be in the Flox environment
+#      (for python3 and curl):
+#
+#        flox activate
+#        ./examples/chat.sh
+#
+#      Or in one line:
+#
+#        flox activate -- ./examples/chat.sh
+#
 # Usage:
 #   ./examples/chat.sh                          # interactive mode
 #   ./examples/chat.sh "What is 2+2?"           # single prompt

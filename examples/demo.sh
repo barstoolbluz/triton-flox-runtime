@@ -1,16 +1,33 @@
 #!/usr/bin/env bash
 # Phi-4-mini TRT-LLM demo — showcases the Triton + TensorRT-LLM inference pipeline.
 #
+# This script sends a series of prompts to a running Triton server via the
+# OpenAI-compatible frontend (port 9000). It demonstrates basic Q&A, streaming,
+# reasoning, code generation, and creative writing.
+#
 # Prerequisites:
-#   The Triton server must be running:
-#     flox activate --start-services
-#   or:
-#     flox activate
-#     flox services start
+#   1. You need a running Triton server with the OpenAI frontend enabled.
+#      Open a terminal in the triton-runtime directory and run:
+#
+#        flox activate --start-services
+#
+#      Wait until you see "Started HTTPService at 0.0.0.0:9000" in the logs.
+#      The manifest already sets TRITON_OPENAI_FRONTEND=true by default.
+#
+#   2. This script must be run from a second terminal, also inside the
+#      triton-runtime directory. You need to be in the Flox environment
+#      (for python3 and curl):
+#
+#        flox activate
+#        ./examples/demo.sh
+#
+#      Or in one line:
+#
+#        flox activate -- ./examples/demo.sh
 #
 # Usage:
-#   ./examples/demo.sh              # run the full demo
-#   ./examples/demo.sh --quick      # shorter version (fewer examples)
+#   ./examples/demo.sh              # run the full demo (5 prompts)
+#   ./examples/demo.sh --quick      # shorter version (3 prompts)
 #
 # Environment:
 #   TRITON_OPENAI_BASE   API base URL   (default: http://localhost:9000/v1)
